@@ -504,7 +504,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.6.6 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.6.7 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -598,18 +598,6 @@ months = month_order(df)
 PLOTLY = dict(template="plotly_white", height=420)
 
 # Единая рамка для всех графиков: скругленные углы, одинаковый размер с соседом
-st.markdown("""<style>
-/* Блоки зафиксированы: скроллбаров нет, все карточки одного размера */
-div[data-testid="stPlotlyChart"] {
-    overflow: hidden !important;
-    min-height: 355px;
-    border-radius: 12px;
-    outline: 1px solid #e4e4e7;
-    outline-offset: 5px;
-    box-shadow: 0 0 0 5px #ffffff, 0 2px 8px rgba(0,0,0,0.10);
-    margin: 8px 4px 14px 4px;
-}
-</style>""", unsafe_allow_html=True)
 
 
 def kpi_delta(cur, old):
@@ -944,50 +932,50 @@ def _render_tab4():
         cols = st.columns(2)
         for i, (title, colname, unit, is_pct) in enumerate(metric_charts):
             with cols[i % 2]:
-                ylabel = f"{title}{', ' + unit if unit else ''}"
-                val_fmt = "%{y:.1%}" if is_pct else ("%{y:,.1f}" if unit == "ч" else "%{y:,.0f}")
-                val_fmt = "%{y:.1%}" if is_pct else ("%{y:,.1f}" if unit == "ч" else "%{y:,.0f}")
-                if single_month:
-                    # один месяц: столбцы по врачам вместо линий из одной точки
-                    fig = px.bar(d4, x="doctor", y=colname, color="doctor", text=colname,
-                                 title=f"{title} — {months[0]}",
-                                 labels={colname: ylabel, "doctor": "доктор"})
-                    fig.update_traces(texttemplate=val_fmt.replace("%{y", "%{text"), textposition="outside")
-                    fig.update_traces(cliponaxis=False)
-                    _vals = d4[colname].dropna()
-                    if len(_vals):
-                        _lo, _hi = float(_vals.min()), float(_vals.max())
-                        _pad = (_hi - _lo) * 0.3 or (abs(_hi) * 0.15 or 1)
-                        fig.update_yaxes(range=[0 if _lo >= 0 else _lo - _pad, _hi + _pad])
-                    fig.update_traces(
-                        hovertemplate=f"доктор: %{{x}}<br>{title}: {val_fmt}<extra></extra>")
-                else:
-                    fig = px.line(d4, x="month_label", y=colname, color="doctor", markers=True, text=colname,
-                                  title=title,
-                                  labels={colname: ylabel, "month_label": "месяц", "doctor": "доктор"})
-                    fig.update_traces(
-                        hovertemplate=f"доктор: %{{fullData.name}}<br>месяц: %{{x}}<br>{title}: {val_fmt}<extra></extra>")
-                    fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months})
-                    _txt = val_fmt.replace("%{y", "%{text")
-                    fig.update_traces(texttemplate=_txt, textposition="top center")
-                    _pos_cycle = ("top center", "bottom center", "top left", "bottom right", "top right")
-                    for _tr in fig.data:
-                        _y = list(_tr.y)
-                        _order = sorted(range(len(_y)), key=lambda k: (_y[k] is None, _y[k]))
-                        _pos = ["top center"] * len(_y)
-                        for _rank, _k in enumerate(_order):
-                            _pos[_k] = _pos_cycle[min(_rank, len(_pos_cycle) - 1)]
-                        _tr.textposition = _pos
-                        _tr.cliponaxis = False
-                    _vals = d4[colname].dropna()
-                    if len(_vals):
-                        _lo, _hi = float(_vals.min()), float(_vals.max())
-                        _pad = (_hi - _lo) * 0.3 or (abs(_hi) * 0.15 or 1)
-                        fig.update_yaxes(range=[_lo - _pad, _hi + _pad])
-                if is_pct:
-                    fig.update_yaxes(tickformat=".0%")
-                fig.update_layout(height=330, template="plotly_white")
-                st.plotly_chart(fig, use_container_width=True)
+                with st.container(border=True):
+                    ylabel = f"{title}{', ' + unit if unit else ''}"
+                    val_fmt = "%{y:.1%}" if is_pct else ("%{y:,.1f}" if unit == "ч" else "%{y:,.0f}")
+                    if single_month:
+                        # один месяц: столбцы по врачам вместо линий из одной точки
+                        fig = px.bar(d4, x="doctor", y=colname, color="doctor", text=colname,
+                                     title=f"{title} — {months[0]}",
+                                     labels={colname: ylabel, "doctor": "доктор"})
+                        fig.update_traces(texttemplate=val_fmt.replace("%{y", "%{text"), textposition="outside")
+                        fig.update_traces(cliponaxis=False)
+                        _vals = d4[colname].dropna()
+                        if len(_vals):
+                            _lo, _hi = float(_vals.min()), float(_vals.max())
+                            _pad = (_hi - _lo) * 0.3 or (abs(_hi) * 0.15 or 1)
+                            fig.update_yaxes(range=[0 if _lo >= 0 else _lo - _pad, _hi + _pad])
+                        fig.update_traces(
+                            hovertemplate=f"доктор: %{{x}}<br>{title}: {val_fmt}<extra></extra>")
+                    else:
+                        fig = px.line(d4, x="month_label", y=colname, color="doctor", markers=True, text=colname,
+                                      title=title,
+                                      labels={colname: ylabel, "month_label": "месяц", "doctor": "доктор"})
+                        fig.update_traces(
+                            hovertemplate=f"доктор: %{{fullData.name}}<br>месяц: %{{x}}<br>{title}: {val_fmt}<extra></extra>")
+                        fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months})
+                        _txt = val_fmt.replace("%{y", "%{text")
+                        fig.update_traces(texttemplate=_txt, textposition="top center")
+                        _pos_cycle = ("top center", "bottom center", "top left", "bottom right", "top right")
+                        for _tr in fig.data:
+                            _y = list(_tr.y)
+                            _order = sorted(range(len(_y)), key=lambda k: (_y[k] is None, _y[k]))
+                            _pos = ["top center"] * len(_y)
+                            for _rank, _k in enumerate(_order):
+                                _pos[_k] = _pos_cycle[min(_rank, len(_pos_cycle) - 1)]
+                            _tr.textposition = _pos
+                            _tr.cliponaxis = False
+                        _vals = d4[colname].dropna()
+                        if len(_vals):
+                            _lo, _hi = float(_vals.min()), float(_vals.max())
+                            _pad = (_hi - _lo) * 0.3 or (abs(_hi) * 0.15 or 1)
+                            fig.update_yaxes(range=[_lo - _pad, _hi + _pad])
+                    if is_pct:
+                        fig.update_yaxes(tickformat=".0%")
+                    fig.update_layout(height=330, template="plotly_white")
+                    st.plotly_chart(fig, use_container_width=True)
 
         st.subheader("Таблица по выбранным врачам")
         show_cols = ["month_full", "doctor", "spec_raw", "hours_plan", "hours_patient",
