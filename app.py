@@ -104,7 +104,7 @@ DOCTOR_METRICS = {
     "Загрузка":                   ("load", ".1%", "", True),
     "Стоимость фактического часа":("cost_hour", ",.0f", "₽", False),
     "Рабочих часов по графику":   ("hours_plan", ",.1f", "ч", False),
-    "Время с пациентом":          ("hours_patient", ",.1f", "ч", False),
+    "Время с пациентом (фактических приемов)": ("hours_patient", ",.1f", "ч", False),
     "Посещения":                  ("visits", ",.0f", "", False),
     "Пациенты":                   ("patients", ",.0f", "", False),
     "Первичные":                  ("first_visits", ",.0f", "", False),
@@ -482,6 +482,7 @@ def clinic_monthly(df: pd.DataFrame) -> pd.DataFrame:
     g["cost_visit"] = np.where(g["visits"] > 0, g["revenue"] / g["visits"], np.nan)
     g["rev_per_patient"] = np.where(g["patients"] > 0, g["revenue"] / g["patients"], np.nan)
     g["first_share"] = np.where(g["patients"] > 0, g["first_visits"] / g["patients"], np.nan)
+    g["visits_per_patient"] = np.where(g["patients"] > 0, g["visits"] / g["patients"], np.nan)
     return g
 
 
@@ -499,7 +500,7 @@ def spec_monthly(df: pd.DataFrame) -> pd.DataFrame:
 
 def pot_monthly(pot: pd.DataFrame) -> pd.DataFrame:
     """Потенциал клиники по месяцам из листа «Потенциал»."""
-    g = pot.groupby(["period", "month_label"], observed=True).agg(
+    g = pot.groupby(["period", "month_label", "month_full"], observed=True).agg(
         rates=("rates", "sum"),
         hours_total=("hours_total", "sum"),
         potential=("potential_use", "sum"),
@@ -601,6 +602,13 @@ def kpi_delta(cur, old):
         return (cur - old) / old
     return None
 
+
+def val_fill(values, low, high):
+    """Градиентная заливка столбцов по значению.
+    Нижний цвет low подбираем контрастным фону, чтобы маленькие
+    значения не сливались с белым фоном."""
+    return dict(color=list(values), colorscale=[[0.0, low], [1.0, high]], showscale=False)
+
 # ================================ ВКЛАДКИ =================================== #
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📈 Динамика клиники",
@@ -639,7 +647,7 @@ with tab1:
         texts.append(t)
     fig = go.Figure()
     fig.add_bar(x=clin["month_label"], y=rev, name="Выручка",
-                marker=dict(color=rev, colorscale="Blues", showscale=False),
+                marker=val_fill(rev, "#C6DBEF", "#08306B"),
                 text=texts, textposition="outside")
     fig.update_layout(title="Выручка клиники по месяцам (заливка темнеет с ростом суммы)",
                       xaxis={"categoryorder": "array", "categoryarray": months},
@@ -649,7 +657,7 @@ with tab1:
     # --- Загрузка: отдельный график с подписями ---
     fig = go.Figure()
     fig.add_bar(x=clin["month_label"], y=clin["load"], name="Загрузка",
-                marker=dict(color=clin["load"], colorscale="Oranges", showscale=False),
+                marker=val_fill(clin["load"], "#FD8D3C", "#7F2704"),
                 text=[f"{v:.1%}" for v in clin["load"]], textposition="outside")
     fig.update_layout(title="Загрузка клиники по месяцам (время с пациентом / часы по графику)",
                       xaxis={"categoryorder": "array", "categoryarray": months},
@@ -660,7 +668,8 @@ with tab1:
     with c1:
         fig = go.Figure()
         fig.add_bar(x=clin["month_label"], y=clin["hours_plan"], name="Часы по графику", marker_color="#9ECAE1")
-        fig.add_bar(x=clin["month_label"], y=clin["hours_patient"], name="Время с пациентом", marker_color="#08519C")
+        fig.add_bar(x=clin["month_label"], y=clin["hours_patient"],
+                    name="Время с пациентом (факт. приемов)", marker_color="#08519C")
         fig.update_layout(title="Часы по графику vs время с пациентом", barmode="group",
                           xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
         st.plotly_chart(fig, use_container_width=True)
@@ -669,9 +678,20 @@ with tab1:
         fig.add_bar(x=clin["month_label"], y=clin["visits"], name="Посещения", marker_color="#4C78A8")
         fig.add_bar(x=clin["month_label"], y=clin["patients"], name="Пациенты", marker_color="#72B7B2")
         fig.add_bar(x=clin["month_label"], y=clin["first_visits"], name="Первичные", marker_color="#F58518")
+        fig.add_scatter(x=clin["month_label"], y=clin["visits_per_patient"],
+                        name="Посещений на 1 пациента", yaxis="y2", mode="lines+markers",
+                        line=dict(color="#C62828", width=3))
         fig.update_layout(title="Посещения / пациенты / первичные", barmode="group",
+                          yaxis=dict(title="кол-во"),
+                          yaxis2=dict(title="визитов на пациента", overlaying="y", side="right"),
                           xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
         st.plotly_chart(fig, use_container_width=True)
+        st.caption(
+            "Логика: **Посещения** — все визиты за месяц; **Пациенты** — уникальные люди "
+            "(визитов всегда ≥ пациентов: один человек может прийти несколько раз); "
+            "**Первичные** — первые обращения в клинику за месяц. "
+            "Красная линия — среднее число визитов на одного пациента (лояльность базы)."
+        )
 
     c1, c2 = st.columns(2)
     with c1:
@@ -720,9 +740,9 @@ with tab2:
         # Потенциал vs факт
         fig = go.Figure()
         fig.add_bar(x=pm["month_label"], y=pm["potential"], name="Потенциал (план)",
-                    marker=dict(color=pm["potential"], colorscale="Greens", showscale=False))
+                    marker=val_fill(pm["potential"], "#74C476", "#00441B"))
         fig.add_bar(x=pm["month_label"], y=pm["revenue"], name="Выручка факт",
-                    marker=dict(color=pm["revenue"], colorscale="Blues", showscale=False))
+                    marker=val_fill(pm["revenue"], "#C6DBEF", "#08306B"))
         fig.update_layout(title="Потенциал vs фактическая выручка по месяцам", barmode="group",
                           xaxis={"categoryorder": "array", "categoryarray": months},
                           yaxis=dict(title="₽"), **PLOTLY)
@@ -732,7 +752,7 @@ with tab2:
         with c1:
             fig = go.Figure()
             fig.add_bar(x=pm["month_label"], y=pm["achieve_calc"], name="Достижение потенциала",
-                        marker=dict(color=pm["achieve_calc"], colorscale="Purples", showscale=False),
+                        marker=val_fill(pm["achieve_calc"], "#9E9AC8", "#3F007D"),
                         text=[f"{v:.1%}" for v in pm["achieve_calc"]], textposition="outside")
             if "pot_achieved" in pm.columns and pm["pot_achieved"].notna().any():
                 fig.add_scatter(x=pm["month_label"], y=pm["pot_achieved"], name="Из отчета",
@@ -744,7 +764,7 @@ with tab2:
         with c2:
             fig = go.Figure()
             fig.add_bar(x=pm["month_label"], y=pm["capacity_use_calc"], name="Использование мощностей",
-                        marker=dict(color=pm["capacity_use_calc"], colorscale="Oranges", showscale=False),
+                        marker=val_fill(pm["capacity_use_calc"], "#FD8D3C", "#7F2704"),
                         text=[f"{v:.1%}" for v in pm["capacity_use_calc"]], textposition="outside")
             if "capacity_use" in pm.columns and pm["capacity_use"].notna().any():
                 fig.add_scatter(x=pm["month_label"], y=pm["capacity_use"], name="Из отчета",
@@ -862,11 +882,19 @@ with tab4:
     st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("Часы: по графику vs время с пациентом")
-    fig = px.bar(d4, x="month_label", y=["hours_plan", "hours_patient"],
-                 color="doctor", barmode="group", facet_row="variable",
+    hours_long = pd.concat([
+        d4[["month_label", "doctor", "hours_plan"]]
+        .rename(columns={"hours_plan": "hours"}).assign(Вид="Часы по графику"),
+        d4[["month_label", "doctor", "hours_patient"]]
+        .rename(columns={"hours_patient": "hours"})
+        .assign(Вид="Время с пациентом (фактических приемов)"),
+    ], ignore_index=True)
+    fig = px.bar(hours_long, x="month_label", y="hours", color="doctor", barmode="group",
+                 facet_row="Вид",
+                 category_orders={"Вид": ["Часы по графику", "Время с пациентом (фактических приемов)"]},
                  title="Рабочие часы по графику и время с пациентом по месяцам",
-                 labels={"value": "часы", "month_label": "", "variable": ""})
-    fig.for_each_annotation(lambda a: a.update(text="Часы по графику" if "plan" in a.text else "Время с пациентом"))
+                 labels={"hours": "часы", "month_label": "", "Вид": ""})
+    fig.for_each_annotation(lambda a: a.update(text=a.text.replace("Вид=", "")))
     fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
     st.plotly_chart(fig, use_container_width=True)
 
