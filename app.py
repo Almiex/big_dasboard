@@ -3,11 +3,14 @@
 Аналитика работы врачей клиники (Streamlit app)
 
 Пользователь загружает от 2 до 12 Excel-отчетов формата
-«Отчет по докторам, ММ.ГГГГ» (ключевой лист — «Отчет по докторам»).
+«<Название клиники>. Отчет по докторам, ММ.ГГГГ» (ключевой лист — «Отчет по докторам»).
+
 Приложение само:
   - находит лист и строку заголовка в каждом файле;
-  - вытаскивает период отчета (ММ.ГГГГ) из шапки и СОРТИРУЕТ отчеты
-    хронологически, независимо от порядка загрузки;
+  - вытаскивает НАЗВАНИЕ КЛИНИКИ и ПЕРИОД (ММ.ГГГГ) из шапки;
+  - СОРТИРУЕТ отчеты хронологически, независимо от порядка загрузки;
+  - НЕ смешивает клиники между собой: врачи разных клиник с одинаковыми
+    ФИО не склеиваются, динамика строится внутри выбранной клиники;
   - считает производные метрики (загрузка, стоимость часа и т.д.);
   - строит дашборды: динамика клиники, специализации, динамика врачей,
     сравнение врачей, выгрузка данных.
@@ -37,7 +40,7 @@ MONTHS_RU_FULL = {
     7: "Июль", 8: "Август", 9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь",
 }
 
-# Алиасы заголовков (нормализуются: lower + схлопывание пробелов)
+# Алиасы заголовков (нормализуются: lower + схлопывание пробелов/переносов)
 HEADER_ALIASES = {
     "doctor":       ["фио врача", "врач", "фио"],
     "spec":         ["специализация"],
@@ -49,46 +52,41 @@ HEADER_ALIASES = {
     "first_visits": ["кол-во первичных", "первичные"],
 }
 
-# Схлопывание специализаций в аналитические группы
+# Порядок важен: более специфичные специализации проверяются раньше
+# generic («хирург», «терапевт»), чтобы «Онколог, маммолог, хирург»
+# уходил в Онкологию, а не в Хирургию.
+SPEC_RULES = [
+    (("травмат", "ортопед"), "Травматология-ортопедия"),
+    (("акушер", "гинеколог"), "Гинекология"),
+    (("ультразвук", "уздг", "узд", "узи", "функциональн"), "УЗИ / ФД"),
+    (("онколог", "маммолог"), "Онкология"),
+    (("аллерг",), "Аллергология"),
+    (("дерматовенеролог",), "Дерматовенерология"),
+    (("дерматолог",), "Дерматология"),
+    (("кардиолог",), "Кардиология"),
+    (("невролог",), "Неврология"),
+    (("эндокринолог",), "Эндокринология"),
+    (("гастро",), "Гастроэнтерология"),
+    (("уролог",), "Урология"),
+    (("отоларинголог", "лор"), "ЛОР"),
+    (("колопроктолог", "проктолог"), "Проктология"),
+    (("флеболог",), "Флебология"),
+    (("пульмонолог", "фтизиатр"), "Пульмонология"),
+    (("психиатр", "психотерапевт", "психолог"), "Психология"),
+    (("мануальн",), "Мануальная терапия"),
+    (("хирург",), "Хирургия"),
+    (("терапевт",), "Терапия"),
+]
+
+
 def group_spec(raw: str) -> str:
     s = norm(raw)
     if not s or s == "nan":
         return "Без специализации"
-    if any(k in s for k in ("ультра", "уздг", "узи", "функциональн")):
-        return "УЗИ / ФД"
-    if "травмат" in s or "ортопед" in s:
-        return "Травматология-ортопедия"
-    if "терапевт" in s or "пульмонолог" in s:
-        return "Терапия"
-    if "дерматовенеролог" in s:
-        return "Дерматовенерология"
-    if "терапевт-дерматолог" in s:
-        return "Дерматология"
-    if "акушер" in s or "гинеколог" in s:
-        return "Гинекология"
-    if "хирург" in s:
-        return "Хирургия"
-    if "невролог" in s:
-        return "Неврология"
-    if "кардиолог" in s:
-        return "Кардиология"
-    if "уролог" in s:
-        return "Урология"
-    if "гастро" in s:
-        return "Гастроэнтерология"
-    if "эндокринолог" in s:
-        return "Эндокринология"
-    if "онколог" in s:
-        return "Онкология"
-    if "лор" in s or "отоларинголог" in s:
-        return "ЛОР"
-    if "проктолог" in s:
-        return "Проктология"
-    if "флеболог" in s:
-        return "Флебология"
-    if "психолог" in s or "психиатр" in s:
-        return "Психология"
-    return str(raw).strip()
+    for keys, group in SPEC_RULES:
+        if any(k in s for k in keys):
+            return group
+    return re.sub(r"\(?кво\)?", "", str(raw)).strip() or "Без специализации"
 
 
 # --------------------------------------------------------------------------- #
@@ -105,6 +103,17 @@ def parse_period_from_text(text: str):
         month, year = int(m.group(1)), int(m.group(2))
         if 1 <= month <= 12:
             return year, month
+    return None
+
+
+def parse_clinic_from_text(text: str):
+    """Из шапки «ООО "Клиника в Северном". Отчет по докторам, 09.2026»
+    вытаскивает название клиники — всё, что до «Отчет по докторам».
+    Регистр и кавычки сохраняются."""
+    m = re.search(r"^(.*?)\s*[.,]?\s*отчет\s+по\s+докторам", str(text), re.IGNORECASE)
+    if m:
+        clinic = m.group(1).strip(" .,")
+        return clinic or None
     return None
 
 
@@ -130,14 +139,15 @@ def find_header_row(raw: pd.DataFrame):
     return None, None
 
 
-def find_period(raw: pd.DataFrame, fallback_name: str):
-    """Ищет период отчета: сначала в первых строках листа, потом в имени файла."""
+def find_period_and_clinic(raw: pd.DataFrame, fallback_name: str):
+    """Ищет период и клинику в первых строках листа; fallback — имя файла."""
     for i in range(min(len(raw), 5)):
         for v in raw.iloc[i].tolist():
-            p = parse_period_from_text(v)
-            if p:
-                return p
-    return parse_period_from_text(fallback_name) or (None, None)
+            period = parse_period_from_text(v)
+            clinic = parse_clinic_from_text(v)
+            if period or clinic:
+                return period, clinic
+    return parse_period_from_text(fallback_name), None
 
 
 def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
@@ -158,10 +168,13 @@ def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
 
     raw = pd.read_excel(xls, sheet_name=target, header=None)
 
-    # 2) период
-    year, month = find_period(raw, file_name)
-    if year is None:
+    # 2) период и клиника
+    period, clinic = find_period_and_clinic(raw, file_name)
+    if period is None:
         raise ValueError(f"Не удалось определить период (ММ.ГГГГ) в файле: {file_name}")
+    year, month = period
+    if not clinic:
+        clinic = re.sub(r"\.(xlsx|xls)$", "", file_name, flags=re.IGNORECASE)
 
     # 3) строка заголовка
     h_row, mapping = find_header_row(raw)
@@ -195,7 +208,9 @@ def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
         else:
             df[c] = np.nan
     df["doctor"] = df["doctor"].astype(str).str.strip()
-    df["spec_raw"] = df["spec"].astype(str).str.strip()
+    # ВАЖНО: пометку «(кво)» НЕ удаляем — по ней врачи визуально отделяются.
+    # Только схлопываем переносы строк/лишние пробелы.
+    df["spec_raw"] = df["spec"].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
     df["spec_group"] = df["spec_raw"].map(group_spec)
 
     # 6) производные метрики
@@ -206,7 +221,8 @@ def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
     df["visits_per_patient"] = np.where(df["patients"] > 0, df["visits"] / df["patients"], np.nan)
     df["first_share"] = np.where(df["patients"] > 0, df["first_visits"] / df["patients"], np.nan)
 
-    # 7) служебные поля периода
+    # 7) служебные поля: клиника + период
+    df["clinic"] = clinic
     df["year"], df["month"] = year, month
     df["period"] = pd.Period(freq="M", year=year, month=month)
     df["month_label"] = f"{MONTHS_RU[month]} {year}"
@@ -231,7 +247,7 @@ def load_all_reports(files_bytes: list, files_names: list) -> pd.DataFrame:
         st.stop()
     df = pd.concat(frames, ignore_index=True)
     # ХРОНОЛОГИЯ: сортируем по реальному периоду, а не по порядку загрузки
-    df = df.sort_values(["period", "doctor"]).reset_index(drop=True)
+    df = df.sort_values(["period", "clinic", "doctor"]).reset_index(drop=True)
     return df
 
 
@@ -278,9 +294,9 @@ st.set_page_config(page_title="Аналитика врачей клиники", 
 
 st.title("🏥 Аналитика работы врачей клиники")
 st.caption(
-    "Загрузите от 2 до 12 отчетов «Отчет по докторам, ММ.ГГГГ» (.xlsx). "
-    "Порядок загрузки не важен — период определяется из шапки каждого файла "
-    "и отчеты выстраиваются в хронологию автоматически."
+    "Загрузите от 2 до 12 отчетов «<Клиника>. Отчет по докторам, ММ.ГГГГ» (.xlsx). "
+    "Порядок загрузки не важен — период определяется из шапки каждого файла. "
+    "Клиники между собой не сравниваются: каждая анализируется отдельно."
 )
 
 with st.sidebar:
@@ -308,9 +324,31 @@ if not uploaded:
 with st.spinner("Читаю отчеты и выстраиваю хронологию..."):
     df = load_all_reports([f.read() for f in uploaded], [f.name for f in uploaded])
 
+# ------------------------- КЛИНИКА: без смешивания ------------------------- #
+# Клиники НЕ сравниваются между собой: если в файлах несколько клиник,
+# пользователь выбирает ОДНУ, и вся аналитика строится внутри нее.
+# Это также защищает от склейки однофамильцев из разных клиник.
+clinics = sorted(df["clinic"].unique())
+with st.sidebar:
+    st.header("🏥 Клиника")
+    if len(clinics) > 1:
+        sel_clinic = st.selectbox(
+            "Клиника (клиники не сравниваются между собой)",
+            clinics,
+            help="Выберите, какую клинику анализируем. Разные клиники — разные врачи и разная динамика.",
+        )
+    else:
+        sel_clinic = clinics[0]
+        st.success(f"**{sel_clinic}**")
+
+df = df[df["clinic"] == sel_clinic].copy()
+st.subheader(f"{sel_clinic}")
+
 periods = df.sort_values("period")["period"].unique()
 if len(periods) < 2:
-    st.warning("Распознан только один период — динамика будет ограничена.")
+    st.warning("По выбранной клинике распознан только один период — динамика будет ограничена.")
+else:
+    st.caption(f"Период анализа: **{df['month_full'].min()} — {df['month_full'].max()}**")
 
 # ------------------------------ фильтры ------------------------------------ #
 with st.sidebar:
@@ -324,12 +362,10 @@ with st.sidebar:
     if df.empty:
         st.error("Нет данных после фильтрации.")
         st.stop()
-    st.caption(f"Период анализа: **{df['month_full'].min()} — {df['month_full'].max()}**")
 
 clin = clinic_monthly(df)
 spec = spec_monthly(df)
 months = month_order(df)
-x_order = {"month_label": months}
 
 PLOTLY = dict(template="plotly_white", height=420)
 
@@ -530,11 +566,11 @@ with tab4:
 # ------------------------------ ТАБ 5 -------------------------------------- #
 with tab5:
     st.subheader("Объединенная таблица (все отчеты, в хронологическом порядке)")
-    out_cols = ["month_full", "source_file", "doctor", "spec_raw", "spec_group", "hours_plan",
-                "hours_patient", "revenue", "visits", "patients", "first_visits", "load",
-                "cost_hour", "cost_visit", "revenue_per_patient", "first_share"]
+    out_cols = ["month_full", "source_file", "clinic", "doctor", "spec_raw", "spec_group",
+                "hours_plan", "hours_patient", "revenue", "visits", "patients", "first_visits",
+                "load", "cost_hour", "cost_visit", "revenue_per_patient", "first_share"]
     out = df[out_cols].copy()
-    out.columns = ["Месяц", "Файл", "Врач", "Специализация (как в отчете)", "Группа",
+    out.columns = ["Месяц", "Файл", "Клиника", "Врач", "Специализация (как в отчете)", "Группа",
                    "Часы по графику", "Время с пациентом", "Выручка", "Посещения",
                    "Пациенты", "Первичные", "Загрузка", "₽/час", "₽/посещение",
                    "₽/пациент", "Доля первичных"]
