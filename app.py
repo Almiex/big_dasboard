@@ -155,8 +155,21 @@ def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
     Парсит один Excel-файл. Ищет лист, содержащий «Отчет по докторам»,
     в нем — строку заголовка, затем читает строки врачей до «Итого по клинике».
     """
-    xls = pd.ExcelFile(BytesIO(file_bytes))
-    # 1) лист с нужной шапкой, иначе второй лист, иначе первый
+    # 1) открываем книгу: старый формат .xls читаем через xlrd,
+    #    новый .xlsx — через openpyxl (python-calamine — запасной движок)
+    suffix = file_name.lower().rsplit(".", 1)[-1]
+    if suffix == "xls":
+        try:
+            xls = pd.ExcelFile(BytesIO(file_bytes), engine="xlrd")
+        except ImportError:
+            raise ValueError(
+                f"Файл {file_name} — старый формат .xls: нужен пакет xlrd "
+                f"(уже добавлен в requirements.txt, перезапустите приложение)"
+            )
+    else:
+        xls = pd.ExcelFile(BytesIO(file_bytes))
+
+    # 2) лист с нужной шапкой, иначе второй лист, иначе первый
     target = None
     for sh in xls.sheet_names:
         head = pd.read_excel(xls, sheet_name=sh, header=None, nrows=5)
@@ -168,7 +181,7 @@ def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
 
     raw = pd.read_excel(xls, sheet_name=target, header=None)
 
-    # 2) период и клиника
+    # 3) период и клиника
     period, clinic = find_period_and_clinic(raw, file_name)
     if period is None:
         raise ValueError(f"Не удалось определить период (ММ.ГГГГ) в файле: {file_name}")
@@ -176,12 +189,12 @@ def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
     if not clinic:
         clinic = re.sub(r"\.(xlsx|xls)$", "", file_name, flags=re.IGNORECASE)
 
-    # 3) строка заголовка
+    # 4) строка заголовка
     h_row, mapping = find_header_row(raw)
     if h_row is None:
         raise ValueError(f"Не найдена строка заголовка (№ / ФИО врача) в файле: {file_name}")
 
-    # 4) строки данных
+    # 5) строки данных
     records = []
     for i in range(h_row + 1, len(raw)):
         row = raw.iloc[i]
@@ -200,7 +213,7 @@ def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
 
     df = pd.DataFrame(records)
 
-    # 5) типы
+    # 6) типы
     num_cols = ["hours_plan", "hours_patient", "revenue", "visits", "patients", "first_visits"]
     for c in num_cols:
         if c in df.columns:
@@ -213,7 +226,7 @@ def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
     df["spec_raw"] = df["spec"].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
     df["spec_group"] = df["spec_raw"].map(group_spec)
 
-    # 6) производные метрики
+    # 7) производные метрики
     df["load"] = np.where(df["hours_plan"] > 0, df["hours_patient"] / df["hours_plan"], np.nan)
     df["cost_hour"] = np.where(df["hours_patient"] > 0, df["revenue"] / df["hours_patient"], np.nan)
     df["cost_visit"] = np.where(df["visits"] > 0, df["revenue"] / df["visits"], np.nan)
@@ -221,7 +234,7 @@ def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
     df["visits_per_patient"] = np.where(df["patients"] > 0, df["visits"] / df["patients"], np.nan)
     df["first_share"] = np.where(df["patients"] > 0, df["first_visits"] / df["patients"], np.nan)
 
-    # 7) служебные поля: клиника + период
+    # 8) служебные поля: клиника + период
     df["clinic"] = clinic
     df["year"], df["month"] = year, month
     df["period"] = pd.Period(freq="M", year=year, month=month)
