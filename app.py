@@ -504,7 +504,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.5.0 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.5.1 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -572,12 +572,16 @@ else:
 with st.sidebar:
     st.header("🔎 Фильтры")
     all_months = month_order(df)
-    sel_months = st.multiselect("Периоды", all_months, default=all_months)
+    sel_months = st.multiselect("Периоды", all_months, default=all_months,
+                                key=f"f_months_{sel_clinic}")
+    sel_months = [m for m in sel_months if m in all_months] or all_months
     df = df[df["month_label"].isin(sel_months)]
     pot = pot[pot["month_label"].isin(sel_months)] if not pot.empty else pot
     kpi = kpi[kpi["month_label"].isin(sel_months)] if not kpi.empty else kpi
     specs = sorted(df["spec_group"].dropna().unique())
-    sel_specs = st.multiselect("Специализации", specs, default=specs)
+    sel_specs = st.multiselect("Специализации", specs, default=specs,
+                               key=f"f_specs_{sel_clinic}")
+    sel_specs = [s for s in sel_specs if s in specs] or specs
     df = df[df["spec_group"].isin(sel_specs)]
     pot = pot[pot["spec_group"].isin(sel_specs)] if not pot.empty else pot
     if df.empty:
@@ -822,8 +826,13 @@ with tab2:
 # ------------------------------ ТАБ 3: СПЕЦИАЛИЗАЦИИ ---------------------- #
 with tab3:
     top_specs = spec.groupby("spec_group")["revenue"].sum().sort_values(ascending=False).index.tolist()
-    sel_top = st.multiselect("Специализации на графике", top_specs, default=top_specs[:8])
+    sel_top = st.multiselect("Специализации на графике", top_specs, default=top_specs[:8],
+                             key=f"tab3_specs_{sel_clinic}")
+    sel_top = [s for s in sel_top if s in top_specs] or top_specs[:8]
     d2 = spec[spec["spec_group"].isin(sel_top)]
+    if d2.empty:
+        st.info("Нет данных по выбранным специализациям.")
+        st.stop()
 
     fig = px.bar(d2, x="month_label", y="revenue", color="spec_group",
                  title="Выручка по специализациям (структура по месяцам)",
@@ -864,11 +873,18 @@ with tab4:
     c1, c2 = st.columns([1, 2])
     with c1:
         spec_list = sorted(df["spec_group"].dropna().unique())
-        sel_spec = st.selectbox("Специализация", spec_list)
+        sel_spec = st.selectbox("Специализация", spec_list, key=f"tab4_spec_{sel_clinic}")
     docs_in_spec = sorted(df.loc[df["spec_group"] == sel_spec, "doctor"].unique())
     with c2:
-        sel_docs = st.multiselect("Врачи этой специализации", docs_in_spec, default=docs_in_spec)
+        sel_docs = st.multiselect("Врачи этой специализации", docs_in_spec, default=docs_in_spec,
+                                  key=f"tab4_docs_{sel_clinic}_{sel_spec}")
+    # защита от устаревшего состояния виджетов (при смене файлов/клиники):
+    # выбранные врачи, которых нет в списке, отбрасываем; если все отброшены — берем всех
+    sel_docs = [d for d in sel_docs if d in docs_in_spec] or docs_in_spec
     d4 = df[(df["spec_group"] == sel_spec) & (df["doctor"].isin(sel_docs))].sort_values("period")
+    if d4.empty:
+        st.info("Нет данных по выбранным врачам — проверьте выбор специализации и врачей.")
+        st.stop()
 
     metric_charts = [
         ("Рабочих часов по графику", "hours_plan", "ч", False),
