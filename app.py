@@ -504,7 +504,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.6.2 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.6.3 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -597,6 +597,15 @@ months = month_order(df)
 
 PLOTLY = dict(template="plotly_white", height=420)
 
+# Единая рамка для всех графиков: скругленные углы, одинаковый размер с соседом
+st.markdown("""<style>
+div[data-testid="stPlotlyChart"] {
+    border: 1px solid #e4e4e7; border-radius: 14px;
+    padding: 10px 10px 4px 10px; background: #ffffff;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+}
+</style>""", unsafe_allow_html=True)
+
 
 def kpi_delta(cur, old):
     if old and pd.notna(old) and old != 0:
@@ -652,6 +661,8 @@ def _render_tab1():
                     marker=val_fill(rev, "#C6DBEF", "#08306B"),
                     text=texts, textposition="outside")
         fig.update_traces(hovertemplate="месяц: %{x}<br>выручка: %{y:,.0f} ₽<extra></extra>")
+        fig.update_traces(cliponaxis=False)
+        fig.update_yaxes(range=[0, float(rev.max()) * 1.2])
         fig.update_layout(title="Выручка клиники по месяцам (заливка темнеет с ростом суммы)",
                           xaxis={"categoryorder": "array", "categoryarray": months},
                           yaxis=dict(title="Выручка, ₽"), showlegend=False, **PLOTLY)
@@ -663,6 +674,8 @@ def _render_tab1():
                     marker=val_fill(clin["load"], "#FD8D3C", "#7F2704"),
                     text=[f"{v:.1%}" for v in clin["load"]], textposition="outside")
         fig.update_traces(hovertemplate="месяц: %{x}<br>загрузка: %{y:.1%}<extra></extra>")
+        fig.update_traces(cliponaxis=False)
+        fig.update_yaxes(range=[0, min(1.0, float(clin["load"].max()) * 1.2)])
         fig.update_layout(title="Загрузка клиники по месяцам (время с пациентом / часы по графику)",
                           xaxis={"categoryorder": "array", "categoryarray": months},
                           yaxis=dict(title="Загрузка", tickformat=".0%"), showlegend=False, **PLOTLY)
@@ -935,6 +948,12 @@ def _render_tab4():
                                  title=f"{title} — {months[0]}",
                                  labels={colname: ylabel, "doctor": "доктор"})
                     fig.update_traces(texttemplate=val_fmt.replace("%{y", "%{text"), textposition="outside")
+                    fig.update_traces(cliponaxis=False)
+                    _vals = d4[colname].dropna()
+                    if len(_vals):
+                        _lo, _hi = float(_vals.min()), float(_vals.max())
+                        _pad = (_hi - _lo) * 0.3 or (abs(_hi) * 0.15 or 1)
+                        fig.update_yaxes(range=[0 if _lo >= 0 else _lo - _pad, _hi + _pad])
                     fig.update_traces(
                         hovertemplate=f"доктор: %{{x}}<br>{title}: {val_fmt}<extra></extra>")
                 else:
@@ -946,6 +965,14 @@ def _render_tab4():
                     fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months})
                     _txt = val_fmt.replace("%{y", "%{text")
                     fig.update_traces(texttemplate=_txt, textposition="top center")
+                    for _j, _tr in enumerate(fig.data):
+                        _tr.textposition = ("top center", "bottom center", "top left")[_j % 3]
+                        _tr.cliponaxis = False
+                    _vals = d4[colname].dropna()
+                    if len(_vals):
+                        _lo, _hi = float(_vals.min()), float(_vals.max())
+                        _pad = (_hi - _lo) * 0.3 or (abs(_hi) * 0.15 or 1)
+                        fig.update_yaxes(range=[_lo - _pad, _hi + _pad])
                 if is_pct:
                     fig.update_yaxes(tickformat=".0%")
                 fig.update_layout(height=330, template="plotly_white")
