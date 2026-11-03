@@ -504,7 +504,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.6.0 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.6.2 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -651,6 +651,7 @@ def _render_tab1():
         fig.add_bar(x=clin["month_label"], y=rev, name="Выручка",
                     marker=val_fill(rev, "#C6DBEF", "#08306B"),
                     text=texts, textposition="outside")
+        fig.update_traces(hovertemplate="месяц: %{x}<br>выручка: %{y:,.0f} ₽<extra></extra>")
         fig.update_layout(title="Выручка клиники по месяцам (заливка темнеет с ростом суммы)",
                           xaxis={"categoryorder": "array", "categoryarray": months},
                           yaxis=dict(title="Выручка, ₽"), showlegend=False, **PLOTLY)
@@ -661,6 +662,7 @@ def _render_tab1():
         fig.add_bar(x=clin["month_label"], y=clin["load"], name="Загрузка",
                     marker=val_fill(clin["load"], "#FD8D3C", "#7F2704"),
                     text=[f"{v:.1%}" for v in clin["load"]], textposition="outside")
+        fig.update_traces(hovertemplate="месяц: %{x}<br>загрузка: %{y:.1%}<extra></extra>")
         fig.update_layout(title="Загрузка клиники по месяцам (время с пациентом / часы по графику)",
                           xaxis={"categoryorder": "array", "categoryarray": months},
                           yaxis=dict(title="Загрузка", tickformat=".0%"), showlegend=False, **PLOTLY)
@@ -672,6 +674,7 @@ def _render_tab1():
             fig.add_bar(x=clin["month_label"], y=clin["hours_plan"], name="Часы по графику", marker_color="#9ECAE1")
             fig.add_bar(x=clin["month_label"], y=clin["hours_patient"],
                         name="Время с пациентом (факт. приемов)", marker_color="#08519C")
+            fig.update_traces(hovertemplate="месяц: %{x}<br>%{fullData.name}: %{y:,.1f} ч<extra></extra>")
             fig.update_layout(title="Часы по графику vs время с пациентом", barmode="group",
                               xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
             st.plotly_chart(fig, use_container_width=True)
@@ -680,14 +683,16 @@ def _render_tab1():
             fig.add_bar(x=clin["month_label"], y=clin["visits"], name="Посещения", marker_color="#4C78A8")
             fig.add_bar(x=clin["month_label"], y=clin["patients"], name="Пациенты", marker_color="#72B7B2")
             fig.add_bar(x=clin["month_label"], y=clin["first_visits"], name="Первичные", marker_color="#F58518")
+            fig.update_traces(hovertemplate="месяц: %{x}<br>%{fullData.name}: %{y:,.0f}<extra></extra>")
             fig.update_layout(title="Посещения / пациенты / первичные", barmode="group",
                               yaxis=dict(title="кол-во"),
                               xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
             st.plotly_chart(fig, use_container_width=True)
             fig = px.line(clin, x="month_label", y="visits_per_patient", markers=True,
                           text="visits_per_patient", title="Посещений на 1 пациента (отдельно)",
-                          labels={"visits_per_patient": "визитов на пациента", "month_label": ""})
+                          labels={"visits_per_patient": "визитов на пациента", "month_label": "месяц"})
             fig.update_traces(texttemplate="%{text:.2f}", textposition="top center")
+            fig.update_traces(hovertemplate="месяц: %{x}<br>визитов на пациента: %{text:.2f}<extra></extra>")
             fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
             st.plotly_chart(fig, use_container_width=True)
             st.caption(
@@ -699,13 +704,15 @@ def _render_tab1():
         c1, c2 = st.columns(2)
         with c1:
             fig = px.line(clin, x="month_label", y="cost_visit", markers=True, text="cost_visit",
-                          title="Средняя стоимость посещения", labels={"cost_visit": "₽ / посещение", "month_label": ""})
+                          title="Средняя стоимость посещения", labels={"cost_visit": "₽ / посещение", "month_label": "месяц"})
             fig.update_traces(texttemplate="%{text:,.0f}", textposition="top center")
+            fig.update_traces(hovertemplate="месяц: %{x}<br>выручка на пациента: %{text:,.0f} ₽<extra></extra>")
+            fig.update_traces(hovertemplate="месяц: %{x}<br>стоимость посещения: %{text:,.0f} ₽<extra></extra>")
             fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
             st.plotly_chart(fig, use_container_width=True)
         with c2:
             fig = px.line(clin, x="month_label", y="rev_per_patient", markers=True, text="rev_per_patient",
-                          title="Выручка на пациента", labels={"rev_per_patient": "₽ / пациент", "month_label": ""})
+                          title="Выручка на пациента", labels={"rev_per_patient": "₽ / пациент", "month_label": "месяц"})
             fig.update_traces(texttemplate="%{text:,.0f}", textposition="top center")
             fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
             st.plotly_chart(fig, use_container_width=True)
@@ -747,6 +754,7 @@ def _render_tab2():
                         marker=val_fill(pm["potential"], "#74C476", "#00441B"))
             fig.add_bar(x=pm["month_label"], y=pm["revenue"], name="Выручка факт",
                         marker=val_fill(pm["revenue"], "#C6DBEF", "#08306B"))
+            fig.update_traces(hovertemplate="месяц: %{x}<br>%{fullData.name}: %{y:,.0f} ₽<extra></extra>")
             fig.update_layout(title="Потенциал vs фактическая выручка по месяцам", barmode="group",
                               xaxis={"categoryorder": "array", "categoryarray": months},
                               yaxis=dict(title="₽"), **PLOTLY)
@@ -758,6 +766,7 @@ def _render_tab2():
                 fig.add_bar(x=pm["month_label"], y=pm["achieve_calc"], name="Достижение потенциала",
                             marker=val_fill(pm["achieve_calc"], "#9E9AC8", "#3F007D"),
                             text=[f"{v:.1%}" for v in pm["achieve_calc"]], textposition="outside")
+                fig.update_traces(hovertemplate="месяц: %{x}<br>%{fullData.name}: %{y:.1%}<extra></extra>")
                 if "pot_achieved" in pm.columns and pm["pot_achieved"].notna().any():
                     fig.add_scatter(x=pm["month_label"], y=pm["pot_achieved"], name="Из отчета",
                                     mode="lines+markers", line=dict(color="#F58518", dash="dash"))
@@ -770,6 +779,7 @@ def _render_tab2():
                 fig.add_bar(x=pm["month_label"], y=pm["capacity_use_calc"], name="Использование мощностей",
                             marker=val_fill(pm["capacity_use_calc"], "#FD8D3C", "#7F2704"),
                             text=[f"{v:.1%}" for v in pm["capacity_use_calc"]], textposition="outside")
+                fig.update_traces(hovertemplate="месяц: %{x}<br>%{fullData.name}: %{y:.1%}<extra></extra>")
                 if "capacity_use" in pm.columns and pm["capacity_use"].notna().any():
                     fig.add_scatter(x=pm["month_label"], y=pm["capacity_use"], name="Из отчета",
                                     mode="lines+markers", line=dict(color="#08519C", dash="dash"))
@@ -784,6 +794,7 @@ def _render_tab2():
                             marker_color="#74C476")
                 fig.add_bar(x=pm["month_label"], y=pm["alt_potential"], name="Альтернативный потенциал",
                             marker_color="#F58518")
+                fig.update_traces(hovertemplate="месяц: %{x}<br>%{fullData.name}: %{y:,.0f} ₽<extra></extra>")
                 if "diff_classic" in pm.columns and pm["diff_classic"].notna().any():
                     fig.add_scatter(x=pm["month_label"], y=pm["diff_classic"], name="Разница с классическим",
                                     mode="lines+markers", yaxis="y2", line=dict(color="#C62828", width=3))
@@ -842,13 +853,15 @@ def _render_tab3():
 
         fig = px.bar(d2, x="month_label", y="revenue", color="spec_group",
                      title="Выручка по специализациям (структура по месяцам)",
-                     labels={"revenue": "Выручка, ₽", "month_label": "", "spec_group": "Специализация"})
+                     labels={"revenue": "выручка, ₽", "month_label": "месяц", "spec_group": "специализация"})
+        fig.update_traces(hovertemplate="специализация: %{fullData.name}<br>месяц: %{x}<br>выручка: %{y:,.0f} ₽<extra></extra>")
         fig.update_layout(barmode="stack", xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
         st.plotly_chart(fig, use_container_width=True)
 
         fig = px.line(d2, x="month_label", y="load", color="spec_group", markers=True,
                       title="Загрузка по специализациям",
-                      labels={"load": "Загрузка", "month_label": "", "spec_group": "Специализация"})
+                      labels={"load": "загрузка", "month_label": "месяц", "spec_group": "специализация"})
+        fig.update_traces(hovertemplate="специализация: %{fullData.name}<br>месяц: %{x}<br>загрузка: %{y:.1%}<extra></extra>")
         fig.update_yaxes(tickformat=".0%")
         fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
         st.plotly_chart(fig, use_container_width=True)
@@ -863,7 +876,8 @@ def _render_tab3():
             pot_spec2 = pot_spec2[pot_spec2["spec_group"].isin(sel_top)]
             fig = px.line(pot_spec2, x="month_label", y="achieve", color="spec_group", markers=True,
                           title="Достижение потенциала по специализациям (выручка / потенциал)",
-                          labels={"achieve": "Достижение потенциала", "month_label": "", "spec_group": "Специализация"})
+                          labels={"achieve": "достижение потенциала", "month_label": "месяц", "spec_group": "специализация"})
+            fig.update_traces(hovertemplate="специализация: %{fullData.name}<br>месяц: %{x}<br>достижение потенциала: %{y:.1%}<extra></extra>")
             fig.update_yaxes(tickformat=".0%")
             fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
             st.plotly_chart(fig, use_container_width=True)
@@ -913,19 +927,27 @@ def _render_tab4():
         for i, (title, colname, unit, is_pct) in enumerate(metric_charts):
             with cols[i % 2]:
                 ylabel = f"{title}{', ' + unit if unit else ''}"
+                val_fmt = "%{y:.1%}" if is_pct else ("%{y:,.1f}" if unit == "ч" else "%{y:,.0f}")
+                val_fmt = "%{y:.1%}" if is_pct else ("%{y:,.1f}" if unit == "ч" else "%{y:,.0f}")
                 if single_month:
                     # один месяц: столбцы по врачам вместо линий из одной точки
-                    fig = px.bar(d4, x="doctor", y=colname, color="doctor",
+                    fig = px.bar(d4, x="doctor", y=colname, color="doctor", text=colname,
                                  title=f"{title} — {months[0]}",
-                                 labels={colname: ylabel, "doctor": "Врач"})
+                                 labels={colname: ylabel, "doctor": "доктор"})
+                    fig.update_traces(texttemplate=val_fmt.replace("%{y", "%{text"), textposition="outside")
+                    fig.update_traces(
+                        hovertemplate=f"доктор: %{{x}}<br>{title}: {val_fmt}<extra></extra>")
                 else:
-                    fig = px.line(d4, x="month_label", y=colname, color="doctor", markers=True,
+                    fig = px.line(d4, x="month_label", y=colname, color="doctor", markers=True, text=colname,
                                   title=title,
-                                  labels={colname: ylabel, "month_label": "", "doctor": "Врач"})
+                                  labels={colname: ylabel, "month_label": "месяц", "doctor": "доктор"})
+                    fig.update_traces(
+                        hovertemplate=f"доктор: %{{fullData.name}}<br>месяц: %{{x}}<br>{title}: {val_fmt}<extra></extra>")
+                    fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months})
+                    _txt = val_fmt.replace("%{y", "%{text")
+                    fig.update_traces(texttemplate=_txt, textposition="top center")
                 if is_pct:
                     fig.update_yaxes(tickformat=".0%")
-                if not single_month:
-                    fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months})
                 fig.update_layout(height=330, template="plotly_white")
                 st.plotly_chart(fig, use_container_width=True)
 
