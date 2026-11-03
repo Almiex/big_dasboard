@@ -504,7 +504,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.6.7 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.6.8 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -945,7 +945,7 @@ def _render_tab4():
                         _vals = d4[colname].dropna()
                         if len(_vals):
                             _lo, _hi = float(_vals.min()), float(_vals.max())
-                            _pad = (_hi - _lo) * 0.3 or (abs(_hi) * 0.15 or 1)
+                            _pad = (_hi - _lo) * 0.5 or (abs(_hi) * 0.15 or 1)
                             fig.update_yaxes(range=[0 if _lo >= 0 else _lo - _pad, _hi + _pad])
                         fig.update_traces(
                             hovertemplate=f"доктор: %{{x}}<br>{title}: {val_fmt}<extra></extra>")
@@ -958,7 +958,7 @@ def _render_tab4():
                         fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months})
                         _txt = val_fmt.replace("%{y", "%{text")
                         fig.update_traces(texttemplate=_txt, textposition="top center")
-                        _pos_cycle = ("top center", "bottom center", "top left", "bottom right", "top right")
+                        _pos_cycle = ("top left", "bottom right", "top center", "bottom left", "top right", "bottom center")
                         for _tr in fig.data:
                             _y = list(_tr.y)
                             _order = sorted(range(len(_y)), key=lambda k: (_y[k] is None, _y[k]))
@@ -970,7 +970,7 @@ def _render_tab4():
                         _vals = d4[colname].dropna()
                         if len(_vals):
                             _lo, _hi = float(_vals.min()), float(_vals.max())
-                            _pad = (_hi - _lo) * 0.3 or (abs(_hi) * 0.15 or 1)
+                            _pad = (_hi - _lo) * 0.5 or (abs(_hi) * 0.15 or 1)
                             fig.update_yaxes(range=[_lo - _pad, _hi + _pad])
                     if is_pct:
                         fig.update_yaxes(tickformat=".0%")
