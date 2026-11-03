@@ -3,17 +3,26 @@
 Аналитика работы врачей клиники (Streamlit app)
 
 Пользователь загружает от 2 до 12 Excel-отчетов формата
-«<Название клиники>. Отчет по докторам, ММ.ГГГГ» (ключевой лист — «Отчет по докторам»).
+«<Название клиники>. Отчет по докторам, ММ.ГГГГ».
+
+В каждом файле используются:
+  - лист «Отчет по докторам»: таблица врачей + блок расчетов
+    (Использование мощностей, Достижение потенциала,
+    Альтернативный потенциал, Разница с классическим, Вывод);
+  - лист «Потенциал»: норма ставки, количество ставок, рабочие часы,
+    стоимость часа, целевая загрузка, потенциал по специализациям.
 
 Приложение само:
-  - находит лист и строку заголовка в каждом файле;
+  - находит листы и строки заголовков в каждом файле;
   - вытаскивает НАЗВАНИЕ КЛИНИКИ и ПЕРИОД (ММ.ГГГГ) из шапки;
   - СОРТИРУЕТ отчеты хронологически, независимо от порядка загрузки;
-  - НЕ смешивает клиники между собой: врачи разных клиник с одинаковыми
-    ФИО не склеиваются, динамика строится внутри выбранной клиники;
-  - считает производные метрики (загрузка, стоимость часа и т.д.);
-  - строит дашборды: динамика клиники, специализации, динамика врачей,
-    сравнение врачей, выгрузка данных.
+  - НЕ смешивает клиники между собой (селектор одной клиники,
+    однофамильцы разных клиник не склеиваются);
+  - Пометку «(кво)» в специализациях НЕ удаляет (визуальный маркер);
+  - считает производные метрики и строит дашборды:
+    динамика клиники, потенциал и мощности, специализации,
+    динамика врачей (выбор 1+ врачей и метрики), сравнение врачей,
+    выгрузка данных.
 """
 
 import re
@@ -40,7 +49,7 @@ MONTHS_RU_FULL = {
     7: "Июль", 8: "Август", 9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь",
 }
 
-# Алиасы заголовков (нормализуются: lower + схлопывание пробелов/переносов)
+# Алиазы заголовков основного отчета (нормализуются: lower + схлопывание пробелов)
 HEADER_ALIASES = {
     "doctor":       ["фио врача", "врач", "фио"],
     "spec":         ["специализация"],
@@ -50,6 +59,17 @@ HEADER_ALIASES = {
     "visits":       ["кол-во посещений", "количество посещений", "посещения"],
     "patients":     ["кол-во пациентов", "количество пациентов", "пациенты"],
     "first_visits": ["кол-во первичных", "первичные"],
+}
+
+# Алиасы заголовков листа «Потенциал»
+POT_ALIASES = {
+    "spec":        ["специализация"],
+    "rate_norm":   ["норма ставки"],
+    "rates":       ["количество ставок", "кол-во ставок"],
+    "hours_total": ["рабочих часов всего", "часов всего"],
+    "cost_hour":   ["стоимость часа"],
+    "target_load": ["целевая загрузка"],
+    "potential":   ["потенциал"],
 }
 
 # Порядок важен: более специфичные специализации проверяются раньше
@@ -77,6 +97,21 @@ SPEC_RULES = [
     (("хирург",), "Хирургия"),
     (("терапевт",), "Терапия"),
 ]
+
+# Метрики для динамики врачей: (колонка, формат, единица, это_проценты)
+DOCTOR_METRICS = {
+    "Выручка":                    ("revenue", ",.0f", "₽", False),
+    "Загрузка":                   ("load", ".1%", "", True),
+    "Стоимость фактического часа":("cost_hour", ",.0f", "₽", False),
+    "Рабочих часов по графику":   ("hours_plan", ",.1f", "ч", False),
+    "Время с пациентом":          ("hours_patient", ",.1f", "ч", False),
+    "Посещения":                  ("visits", ",.0f", "", False),
+    "Пациенты":                   ("patients", ",.0f", "", False),
+    "Первичные":                  ("first_visits", ",.0f", "", False),
+    "Доля первичных":             ("first_share", ".1%", "", True),
+    "Стоимость посещения":        ("cost_visit", ",.0f", "₽", False),
+    "Выручка на пациента":        ("revenue_per_patient", ",.0f", "₽", False),
+}
 
 
 def group_spec(raw: str) -> str:
@@ -117,10 +152,24 @@ def parse_clinic_from_text(text: str):
     return None
 
 
+def open_excel(file_bytes: bytes, file_name: str):
+    """Открывает книгу: старый формат .xls — через xlrd, новый .xlsx — через openpyxl."""
+    suffix = file_name.lower().rsplit(".", 1)[-1]
+    if suffix == "xls":
+        try:
+            return pd.ExcelFile(BytesIO(file_bytes), engine="xlrd")
+        except ImportError:
+            raise ValueError(
+                f"Файл {file_name} — старый формат .xls: нужен пакет xlrd "
+                f"(уже добавлен в requirements.txt, перезапустите приложение)"
+            )
+    return pd.ExcelFile(BytesIO(file_bytes))
+
+
 # --------------------------------------------------------------------------- #
-# Парсинг одного отчета
+# Парсинг основного листа «Отчет по докторам»
 # --------------------------------------------------------------------------- #
-def find_header_row(raw: pd.DataFrame):
+def find_header_row(raw: pd.DataFrame, aliases: dict):
     """Возвращает (row_idx, {canonical_name: col_idx}) для строки заголовка."""
     for i in range(min(len(raw), 15)):
         row = raw.iloc[i]
@@ -128,10 +177,10 @@ def find_header_row(raw: pd.DataFrame):
         if any(v in ("№", "n", "no") for v in normed) and any("фио" in v for v in normed):
             mapping = {}
             for col, v in enumerate(normed):
-                for canon, aliases in HEADER_ALIASES.items():
+                for canon, al in aliases.items():
                     if canon in mapping:
                         continue
-                    if v in aliases or any(v.startswith(a) for a in aliases):
+                    if v in al or any(v.startswith(a) for a in al):
                         mapping[canon] = col
                         break
             if "doctor" in mapping and "revenue" in mapping:
@@ -150,26 +199,75 @@ def find_period_and_clinic(raw: pd.DataFrame, fallback_name: str):
     return parse_period_from_text(fallback_name), None
 
 
-def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
-    """
-    Парсит один Excel-файл. Ищет лист, содержащий «Отчет по докторам»,
-    в нем — строку заголовка, затем читает строки врачей до «Итого по клинике».
-    """
-    # 1) открываем книгу: старый формат .xls читаем через xlrd,
-    #    новый .xlsx — через openpyxl (python-calamine — запасной движок)
-    suffix = file_name.lower().rsplit(".", 1)[-1]
-    if suffix == "xls":
-        try:
-            xls = pd.ExcelFile(BytesIO(file_bytes), engine="xlrd")
-        except ImportError:
-            raise ValueError(
-                f"Файл {file_name} — старый формат .xls: нужен пакет xlrd "
-                f"(уже добавлен в requirements.txt, перезапустите приложение)"
-            )
-    else:
-        xls = pd.ExcelFile(BytesIO(file_bytes))
+BOTTOM_KEYS = [
+    ("capacity_use", ("исп мощност", "использование мощност")),
+    ("pot_achieved", ("дост потенциала", "достижение потенциала")),
+    ("alt_potential", ("альтернативный потенциал",)),
+    ("diff_classic", ("разница с классическим", "разница")),
+    ("conclusion", ("вывод",)),
+]
 
-    # 2) лист с нужной шапкой, иначе второй лист, иначе первый
+
+def _find_value_nearby(region: pd.DataFrame, r: int, c: int):
+    """Ищет число справа от ячейки (до 8 колонок), иначе — под ней."""
+    row = region.iloc[r]
+    for cc in range(c + 1, min(region.shape[1], c + 9)):
+        v = pd.to_numeric(row.iloc[cc], errors="coerce")
+        if pd.notna(v):
+            return float(v)
+    if r + 1 < region.shape[0]:
+        v = pd.to_numeric(region.iloc[r + 1, c], errors="coerce")
+        if pd.notna(v):
+            return float(v)
+    return None
+
+
+def _find_text_nearby(region: pd.DataFrame, r: int, c: int):
+    """Ищет текст вывода: непустая текстовая ячейка справа или под меткой."""
+    row = region.iloc[r]
+    for cc in range(c + 1, min(region.shape[1], c + 9)):
+        v = str(row.iloc[cc]).strip()
+        if v and v.lower() != "nan":
+            return v
+    if r + 1 < region.shape[0]:
+        v = str(region.iloc[r + 1, c]).strip()
+        if v and v.lower() != "nan":
+            return v
+    return None
+
+
+def parse_bottom_metrics(raw: pd.DataFrame, start_row: int, meta: dict):
+    """Парсит блок расчетов под таблицей врачей: Использование мощностей,
+    Достижение потенциала, Альтернативный потенциал, Разница, Вывод."""
+    region = raw.iloc[start_row: start_row + 20]
+    out = {}
+    for r in range(region.shape[0]):
+        for c in range(region.shape[1]):
+            cell = norm(region.iloc[r, c])
+            if not cell:
+                continue
+            for key, aliases in BOTTOM_KEYS:
+                if key in out:
+                    continue
+                if any(a in cell for a in aliases):
+                    if key == "conclusion":
+                        val = _find_text_nearby(region, r, c)
+                    else:
+                        val = _find_value_nearby(region, r, c)
+                    if val is not None:
+                        out[key] = val
+    out.update(meta)
+    return out
+
+
+def parse_report(file_bytes: bytes, file_name: str):
+    """
+    Парсит один Excel-файл: лист «Отчет по докторам» (таблица врачей +
+    блок расчетов внизу) и лист «Потенциал». Возвращает (doctors_df, bottom_dict).
+    """
+    xls = open_excel(file_bytes, file_name)
+
+    # 1) лист с нужной шапкой, иначе второй лист, иначе первый
     target = None
     for sh in xls.sheet_names:
         head = pd.read_excel(xls, sheet_name=sh, header=None, nrows=5)
@@ -181,7 +279,7 @@ def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
 
     raw = pd.read_excel(xls, sheet_name=target, header=None)
 
-    # 3) период и клиника
+    # 2) период и клиника
     period, clinic = find_period_and_clinic(raw, file_name)
     if period is None:
         raise ValueError(f"Не удалось определить период (ММ.ГГГГ) в файле: {file_name}")
@@ -189,18 +287,27 @@ def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
     if not clinic:
         clinic = re.sub(r"\.(xlsx|xls)$", "", file_name, flags=re.IGNORECASE)
 
-    # 4) строка заголовка
-    h_row, mapping = find_header_row(raw)
+    meta = dict(year=year, month=month,
+                period=pd.Period(freq="M", year=year, month=month),
+                month_label=f"{MONTHS_RU[month]} {year}",
+                month_full=f"{MONTHS_RU_FULL[month]} {year}",
+                clinic=clinic, source_file=file_name)
+
+    # 3) строка заголовка
+    h_row, mapping = find_header_row(raw, HEADER_ALIASES)
     if h_row is None:
         raise ValueError(f"Не найдена строка заголовка (№ / ФИО врача) в файле: {file_name}")
 
-    # 5) строки данных
+    # 4) строки данных
     records = []
+    stop_row = len(raw)
     for i in range(h_row + 1, len(raw)):
         row = raw.iloc[i]
-        first = norm(row.iloc[0])
-        if "итог" in " ".join(norm(v) for v in row.tolist()):
+        joined = " ".join(norm(v) for v in row.tolist())
+        if "итог" in joined:
+            stop_row = i
             break  # «Итого по клинике» и ниже — не данные
+        first = norm(row.iloc[0])
         if not re.fullmatch(r"\d+(\.0)?", first):
             continue
         rec = {}
@@ -213,7 +320,7 @@ def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
 
     df = pd.DataFrame(records)
 
-    # 6) типы
+    # 5) типы
     num_cols = ["hours_plan", "hours_patient", "revenue", "visits", "patients", "first_visits"]
     for c in num_cols:
         if c in df.columns:
@@ -226,7 +333,7 @@ def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
     df["spec_raw"] = df["spec"].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
     df["spec_group"] = df["spec_raw"].map(group_spec)
 
-    # 7) производные метрики
+    # 6) производные метрики
     df["load"] = np.where(df["hours_plan"] > 0, df["hours_patient"] / df["hours_plan"], np.nan)
     df["cost_hour"] = np.where(df["hours_patient"] > 0, df["revenue"] / df["hours_patient"], np.nan)
     df["cost_visit"] = np.where(df["visits"] > 0, df["revenue"] / df["visits"], np.nan)
@@ -234,34 +341,128 @@ def parse_report(file_bytes: bytes, file_name: str) -> pd.DataFrame:
     df["visits_per_patient"] = np.where(df["patients"] > 0, df["visits"] / df["patients"], np.nan)
     df["first_share"] = np.where(df["patients"] > 0, df["first_visits"] / df["patients"], np.nan)
 
-    # 8) служебные поля: клиника + период
-    df["clinic"] = clinic
-    df["year"], df["month"] = year, month
-    df["period"] = pd.Period(freq="M", year=year, month=month)
-    df["month_label"] = f"{MONTHS_RU[month]} {year}"
-    df["month_full"] = f"{MONTHS_RU_FULL[month]} {year}"
-    df["source_file"] = file_name
+    # 7) служебные поля: клиника + период
+    for k, v in meta.items():
+        df[k] = v
+
+    # 8) блок расчетов под таблицей (Исп мощности / Дост потенциала / ...)
+    bottom = parse_bottom_metrics(raw, stop_row + 1, meta)
+
+    return df, bottom
+
+
+# --------------------------------------------------------------------------- #
+# Парсинг листа «Потенциал»
+# --------------------------------------------------------------------------- #
+def parse_potential_sheet(xls, meta: dict):
+    """Парсит лист «Потенциал»: ставки, часы, стоимость часа, целевая
+    загрузка и потенциал по специализациям. Если листа нет — None."""
+    target = None
+    for sh in xls.sheet_names:
+        if "потенциал" in norm(sh):
+            target = sh
+            break
+    if target is None:
+        for sh in xls.sheet_names:
+            head = pd.read_excel(xls, sheet_name=sh, header=None, nrows=10)
+            if any("норма ставки" in norm(v) for v in head.values.flatten()):
+                target = sh
+                break
+    if target is None:
+        return None
+
+    raw = pd.read_excel(xls, sheet_name=target, header=None)
+    h_row, mapping = find_header_row_potential(raw)
+    if h_row is None:
+        return None
+
+    records = []
+    for i in range(h_row + 1, len(raw)):
+        row = raw.iloc[i]
+        joined = " ".join(norm(v) for v in row.tolist())
+        if "итог" in joined:
+            break
+        first = str(row.iloc[mapping["spec"]]).strip()
+        if not first or first.lower() == "nan":
+            continue
+        rec = {}
+        for canon, col in mapping.items():
+            rec[canon] = row.iloc[col]
+        records.append(rec)
+
+    if not records:
+        return None
+
+    df = pd.DataFrame(records)
+    for c in ["rate_norm", "rates", "hours_total", "cost_hour", "target_load", "potential"]:
+        if c not in df.columns:
+            df[c] = np.nan
+        df[c] = pd.to_numeric(df[c], errors="coerce")
+
+    # потенциал из файла; если пусто — считаем: часы * целевая загрузка * стоимость часа
+    df["potential_use"] = df["potential"].where(
+        df["potential"].notna() & (df["potential"] > 0),
+        df["hours_total"] * df["target_load"] * df["cost_hour"],
+    )
+    df["spec"] = df["spec"].astype(str).str.replace(r"\s+", " ", regex=True).str.strip()
+    df["spec_group"] = df["spec"].map(group_spec)
+    for k, v in meta.items():
+        df[k] = v
     return df
 
 
+def find_header_row_potential(raw: pd.DataFrame):
+    for i in range(min(len(raw), 15)):
+        row = raw.iloc[i]
+        normed = [norm(v) for v in row.tolist()]
+        if any("специализация" in v for v in normed) and any("норма ставки" in v for v in normed):
+            mapping = {}
+            for col, v in enumerate(normed):
+                for canon, al in POT_ALIASES.items():
+                    if canon in mapping:
+                        continue
+                    if v in al or any(v.startswith(a) for a in al):
+                        mapping[canon] = col
+                        break
+            if "spec" in mapping and "hours_total" in mapping:
+                return i, mapping
+    return None, None
+
+
 @st.cache_data(show_spinner=False)
-def load_all_reports(files_bytes: list, files_names: list) -> pd.DataFrame:
-    frames, errors = [], []
+def load_all_reports(files_bytes: list, files_names: list):
+    doctor_frames, pot_frames, bottom_rows, errors = [], [], [], []
     for b, n in zip(files_bytes, files_names):
         try:
-            frames.append(parse_report(b, n))
+            xls = open_excel(b, n)
+            # мета берем из основного листа через parse_report
+            d, bottom = parse_report(b, n)
+            doctor_frames.append(d)
+            bottom_rows.append(bottom)
+            pot = parse_potential_sheet(xls, {k: d[k].iloc[0] for k in
+                                              ["year", "month", "period", "month_label",
+                                               "month_full", "clinic", "source_file"]})
+            if pot is not None:
+                pot_frames.append(pot)
         except Exception as e:
             errors.append(str(e))
     if errors:
         for e in errors:
             st.warning(e)
-    if not frames:
+    if not doctor_frames:
         st.error("Не удалось распознать ни одного отчета.")
         st.stop()
-    df = pd.concat(frames, ignore_index=True)
+
+    df = pd.concat(doctor_frames, ignore_index=True)
+    pot = pd.concat(pot_frames, ignore_index=True) if pot_frames else pd.DataFrame()
+    kpi = pd.DataFrame(bottom_rows)
     # ХРОНОЛОГИЯ: сортируем по реальному периоду, а не по порядку загрузки
     df = df.sort_values(["period", "clinic", "doctor"]).reset_index(drop=True)
-    return df
+    if not pot.empty:
+        pot = pot.sort_values(["period", "spec"]).reset_index(drop=True)
+    if not kpi.empty:
+        kpi = kpi.sort_values("period").reset_index(drop=True)
+    return df, pot, kpi
 
 
 # --------------------------------------------------------------------------- #
@@ -296,6 +497,16 @@ def spec_monthly(df: pd.DataFrame) -> pd.DataFrame:
     return g.sort_values(["spec_group", "period"])
 
 
+def pot_monthly(pot: pd.DataFrame) -> pd.DataFrame:
+    """Потенциал клиники по месяцам из листа «Потенциал»."""
+    g = pot.groupby(["period", "month_label"], observed=True).agg(
+        rates=("rates", "sum"),
+        hours_total=("hours_total", "sum"),
+        potential=("potential_use", "sum"),
+    ).reset_index().sort_values("period")
+    return g
+
+
 def month_order(df: pd.DataFrame) -> list:
     return df.sort_values("period")["month_label"].drop_duplicates().tolist()
 
@@ -307,7 +518,7 @@ st.set_page_config(page_title="Аналитика врачей клиники", 
 
 st.title("🏥 Аналитика работы врачей клиники")
 st.caption(
-    "Загрузите от 2 до 12 отчетов «<Клиника>. Отчет по докторам, ММ.ГГГГ» (.xlsx). "
+    "Загрузите от 2 до 12 отчетов «<Клиника>. Отчет по докторам, ММ.ГГГГ» (.xlsx/.xls). "
     "Порядок загрузки не важен — период определяется из шапки каждого файла. "
     "Клиники между собой не сравниваются: каждая анализируется отдельно."
 )
@@ -335,12 +546,9 @@ if not uploaded:
     st.stop()
 
 with st.spinner("Читаю отчеты и выстраиваю хронологию..."):
-    df = load_all_reports([f.read() for f in uploaded], [f.name for f in uploaded])
+    df, pot, kpi = load_all_reports([f.read() for f in uploaded], [f.name for f in uploaded])
 
 # ------------------------- КЛИНИКА: без смешивания ------------------------- #
-# Клиники НЕ сравниваются между собой: если в файлах несколько клиник,
-# пользователь выбирает ОДНУ, и вся аналитика строится внутри нее.
-# Это также защищает от склейки однофамильцев из разных клиник.
 clinics = sorted(df["clinic"].unique())
 with st.sidebar:
     st.header("🏥 Клиника")
@@ -355,6 +563,8 @@ with st.sidebar:
         st.success(f"**{sel_clinic}**")
 
 df = df[df["clinic"] == sel_clinic].copy()
+pot = pot[pot["clinic"] == sel_clinic].copy() if not pot.empty else pot
+kpi = kpi[kpi["clinic"] == sel_clinic].copy() if not kpi.empty else kpi
 st.subheader(f"{sel_clinic}")
 
 periods = df.sort_values("period")["period"].unique()
@@ -369,9 +579,12 @@ with st.sidebar:
     all_months = month_order(df)
     sel_months = st.multiselect("Периоды", all_months, default=all_months)
     df = df[df["month_label"].isin(sel_months)]
+    pot = pot[pot["month_label"].isin(sel_months)] if not pot.empty else pot
+    kpi = kpi[kpi["month_label"].isin(sel_months)] if not kpi.empty else kpi
     specs = sorted(df["spec_group"].dropna().unique())
     sel_specs = st.multiselect("Специализации", specs, default=specs)
     df = df[df["spec_group"].isin(sel_specs)]
+    pot = pot[pot["spec_group"].isin(sel_specs)] if not pot.empty else pot
     if df.empty:
         st.error("Нет данных после фильтрации.")
         st.stop()
@@ -382,21 +595,16 @@ months = month_order(df)
 
 PLOTLY = dict(template="plotly_white", height=420)
 
-def bar_line(g, bar_col, line_col, title, y1_title, y2_title):
-    fig = go.Figure()
-    fig.add_bar(x=g["month_label"], y=g[bar_col], name=y1_title, marker_color="#4C78A8")
-    fig.add_scatter(x=g["month_label"], y=g[line_col], name=y2_title, yaxis="y2",
-                    mode="lines+markers", line=dict(color="#F58518", width=3))
-    fig.update_layout(
-        title=title, xaxis={"categoryorder": "array", "categoryarray": months},
-        yaxis=dict(title=y1_title), yaxis2=dict(title=y2_title, overlaying="y", side="right"),
-        **PLOTLY,
-    )
-    return fig
+
+def kpi_delta(cur, old):
+    if old and pd.notna(old) and old != 0:
+        return (cur - old) / old
+    return None
 
 # ================================ ВКЛАДКИ =================================== #
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📈 Динамика клиники",
+    "⚡ Потенциал и мощности",
     "🩺 Специализации",
     "👨‍⚕️ Динамика врачей",
     "🏆 Сравнение врачей",
@@ -406,11 +614,6 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 # ------------------------------ ТАБ 1 -------------------------------------- #
 with tab1:
     last, prev = clin.iloc[-1], clin.iloc[-2] if len(clin) > 1 else None
-
-    def kpi_delta(cur, old):
-        if old and pd.notna(old) and old != 0:
-            return (cur - old) / old
-        return None
 
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("Выручка", f"{last['revenue']:,.0f} ₽".replace(",", " "),
@@ -424,8 +627,34 @@ with tab1:
     c5.metric("Доля первичных", f"{last['first_share']:.1%}",
               None if prev is None else f"{(last['first_share'] - prev['first_share']):+.1%}")
 
-    st.plotly_chart(bar_line(clin, "revenue", "load", "Выручка и загрузка клиники по месяцам",
-                             "Выручка, ₽", "Загрузка"), use_container_width=True)
+    # --- Выручка: градиентная заливка по значению + подписи с дельтой ---
+    rev = clin["revenue"]
+    deltas = rev.pct_change()
+    texts = []
+    for v, d in zip(rev, deltas):
+        t = f"{v / 1e6:,.2f} млн ₽".replace(",", " ")
+        if pd.notna(d):
+            color = "#2E7D32" if d >= 0 else "#C62828"
+            t += f"<br><span style='font-size:12px; color:{color};'>{d:+.1%} к пред. месяцу</span>"
+        texts.append(t)
+    fig = go.Figure()
+    fig.add_bar(x=clin["month_label"], y=rev, name="Выручка",
+                marker=dict(color=rev, colorscale="Blues", showscale=False),
+                text=texts, textposition="outside")
+    fig.update_layout(title="Выручка клиники по месяцам (заливка темнеет с ростом суммы)",
+                      xaxis={"categoryorder": "array", "categoryarray": months},
+                      yaxis=dict(title="Выручка, ₽"), showlegend=False, **PLOTLY)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # --- Загрузка: отдельный график с подписями ---
+    fig = go.Figure()
+    fig.add_bar(x=clin["month_label"], y=clin["load"], name="Загрузка",
+                marker=dict(color=clin["load"], colorscale="Oranges", showscale=False),
+                text=[f"{v:.1%}" for v in clin["load"]], textposition="outside")
+    fig.update_layout(title="Загрузка клиники по месяцам (время с пациентом / часы по графику)",
+                      xaxis={"categoryorder": "array", "categoryarray": months},
+                      yaxis=dict(title="Загрузка", tickformat=".0%"), showlegend=False, **PLOTLY)
+    st.plotly_chart(fig, use_container_width=True)
 
     c1, c2 = st.columns(2)
     with c1:
@@ -458,8 +687,125 @@ with tab1:
         fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
         st.plotly_chart(fig, use_container_width=True)
 
-# ------------------------------ ТАБ 2 -------------------------------------- #
+# ------------------------------ ТАБ 2: ПОТЕНЦИАЛ --------------------------- #
 with tab2:
+    if pot.empty:
+        st.info("В загруженных отчетах нет листа «Потенциал» — динамика потенциала недоступна.")
+    else:
+        pm = pot_monthly(pot).merge(
+            clin[["period", "revenue", "hours_patient"]], on="period", how="left")
+        pm["capacity_use_calc"] = np.where(pm["hours_total"] > 0,
+                                           pm["hours_patient"] / pm["hours_total"], np.nan)
+        pm["achieve_calc"] = np.where(pm["potential"] > 0, pm["revenue"] / pm["potential"], np.nan)
+
+        if not kpi.empty:
+            kpi_cols = [c for c in ["period", "capacity_use", "pot_achieved",
+                                    "alt_potential", "diff_classic"] if c in kpi.columns]
+            if len(kpi_cols) > 1:
+                pm = pm.merge(kpi[kpi_cols].drop_duplicates("period"), on="period", how="left")
+
+        last = pm.iloc[-1]
+        prev = pm.iloc[-2] if len(pm) > 1 else None
+
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Потенциал (план)", f"{last['potential']:,.0f} ₽".replace(",", " "),
+                  None if prev is None else f"{kpi_delta(last['potential'], prev['potential']):+.1%}")
+        c2.metric("Выручка факт", f"{last['revenue']:,.0f} ₽".replace(",", " "),
+                  None if prev is None else f"{kpi_delta(last['revenue'], prev['revenue']):+.1%}")
+        c3.metric("Достижение потенциала", f"{last['achieve_calc']:.1%}",
+                  None if prev is None else f"{(last['achieve_calc'] - prev['achieve_calc']):+.1%}")
+        c4.metric("Использование мощностей", f"{last['capacity_use_calc']:.1%}",
+                  None if prev is None else f"{(last['capacity_use_calc'] - prev['capacity_use_calc']):+.1%}")
+
+        # Потенциал vs факт
+        fig = go.Figure()
+        fig.add_bar(x=pm["month_label"], y=pm["potential"], name="Потенциал (план)",
+                    marker=dict(color=pm["potential"], colorscale="Greens", showscale=False))
+        fig.add_bar(x=pm["month_label"], y=pm["revenue"], name="Выручка факт",
+                    marker=dict(color=pm["revenue"], colorscale="Blues", showscale=False))
+        fig.update_layout(title="Потенциал vs фактическая выручка по месяцам", barmode="group",
+                          xaxis={"categoryorder": "array", "categoryarray": months},
+                          yaxis=dict(title="₽"), **PLOTLY)
+        st.plotly_chart(fig, use_container_width=True)
+
+        c1, c2 = st.columns(2)
+        with c1:
+            fig = go.Figure()
+            fig.add_bar(x=pm["month_label"], y=pm["achieve_calc"], name="Достижение потенциала",
+                        marker=dict(color=pm["achieve_calc"], colorscale="Purples", showscale=False),
+                        text=[f"{v:.1%}" for v in pm["achieve_calc"]], textposition="outside")
+            if "pot_achieved" in pm.columns and pm["pot_achieved"].notna().any():
+                fig.add_scatter(x=pm["month_label"], y=pm["pot_achieved"], name="Из отчета",
+                                mode="lines+markers", line=dict(color="#F58518", dash="dash"))
+            fig.update_layout(title="Достижение потенциала (выручка / потенциал)",
+                              xaxis={"categoryorder": "array", "categoryarray": months},
+                              yaxis=dict(tickformat=".0%"), **PLOTLY)
+            st.plotly_chart(fig, use_container_width=True)
+        with c2:
+            fig = go.Figure()
+            fig.add_bar(x=pm["month_label"], y=pm["capacity_use_calc"], name="Использование мощностей",
+                        marker=dict(color=pm["capacity_use_calc"], colorscale="Oranges", showscale=False),
+                        text=[f"{v:.1%}" for v in pm["capacity_use_calc"]], textposition="outside")
+            if "capacity_use" in pm.columns and pm["capacity_use"].notna().any():
+                fig.add_scatter(x=pm["month_label"], y=pm["capacity_use"], name="Из отчета",
+                                mode="lines+markers", line=dict(color="#08519C", dash="dash"))
+            fig.update_layout(title="Использование мощностей (время с пациентом / рабочие часы)",
+                              xaxis={"categoryorder": "array", "categoryarray": months},
+                              yaxis=dict(tickformat=".0%"), **PLOTLY)
+            st.plotly_chart(fig, use_container_width=True)
+
+        if "alt_potential" in pm.columns and pm["alt_potential"].notna().any():
+            fig = go.Figure()
+            fig.add_bar(x=pm["month_label"], y=pm["potential"], name="Классический потенциал",
+                        marker_color="#74C476")
+            fig.add_bar(x=pm["month_label"], y=pm["alt_potential"], name="Альтернативный потенциал",
+                        marker_color="#F58518")
+            if "diff_classic" in pm.columns and pm["diff_classic"].notna().any():
+                fig.add_scatter(x=pm["month_label"], y=pm["diff_classic"], name="Разница с классическим",
+                                mode="lines+markers", yaxis="y2", line=dict(color="#C62828", width=3))
+            fig.update_layout(title="Альтернативный потенциал",
+                              xaxis={"categoryorder": "array", "categoryarray": months},
+                              yaxis=dict(title="₽"), yaxis2=dict(title="Разница, ₽", overlaying="y", side="right"),
+                              **PLOTLY)
+            st.plotly_chart(fig, use_container_width=True)
+
+        conclusions = (kpi[kpi["conclusion"].notna()][["month_label", "conclusion"]]
+                       if (not kpi.empty and "conclusion" in kpi.columns) else pd.DataFrame())
+        if not conclusions.empty:
+            st.subheader("Выводы из отчетов")
+            for _, r in conclusions.iterrows():
+                st.markdown(f"**{r['month_label']}:** {r['conclusion']}")
+
+        st.subheader("Сводка по месяцам")
+        t = pm.copy()
+        t["potential"] = t["potential"].map("{:,.0f}".format)
+        t["revenue"] = t["revenue"].map("{:,.0f}".format)
+        t["achieve_calc"] = t["achieve_calc"].map("{:.1%}".format)
+        t["capacity_use_calc"] = t["capacity_use_calc"].map("{:.1%}".format)
+        t = t[["month_full", "rates", "hours_total", "potential", "revenue",
+               "achieve_calc", "capacity_use_calc"]]
+        t.columns = ["Месяц", "Ставок", "Рабочих часов (план)", "Потенциал, ₽",
+                     "Выручка факт, ₽", "Достижение потенциала", "Использование мощностей"]
+        st.dataframe(t, use_container_width=True, hide_index=True)
+
+        st.subheader("Потенциал по специализациям (из листа «Потенциал»)")
+        pot_spec = pot.groupby(["month_label", "spec_group"], as_index=False).agg(
+            hours_total=("hours_total", "sum"), potential=("potential_use", "sum"))
+        pot_spec = pot_spec.merge(
+            spec[["month_label", "spec_group", "revenue"]], on=["month_label", "spec_group"], how="left")
+        pot_spec["achieve"] = np.where(pot_spec["potential"] > 0,
+                                       pot_spec["revenue"] / pot_spec["potential"], np.nan)
+        pot_pivot = pot_spec.pivot_table(index="spec_group", columns="month_label",
+                                         values="achieve", aggfunc="sum")
+        pot_pivot = pot_pivot.reindex(pot_spec.groupby("spec_group")["potential"]
+                                      .sum().sort_values(ascending=False).index)
+        fig = px.imshow(pot_pivot, text_auto=".0%", aspect="auto", color_continuous_scale="RdYlGn",
+                        title="Достижение потенциала по специализациям и месяцам")
+        fig.update_layout(height=max(400, 20 * len(pot_pivot)))
+        st.plotly_chart(fig, use_container_width=True)
+
+# ------------------------------ ТАБ 3: СПЕЦИАЛИЗАЦИИ ---------------------- #
+with tab3:
     top_specs = spec.groupby("spec_group")["revenue"].sum().sort_values(ascending=False).index.tolist()
     sel_top = st.multiselect("Специализации на графике", top_specs, default=top_specs[:8])
     d2 = spec[spec["spec_group"].isin(sel_top)]
@@ -477,73 +823,82 @@ with tab2:
     fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
     st.plotly_chart(fig, use_container_width=True)
 
+    if not pot.empty:
+        pot_spec2 = pot.groupby(["month_label", "spec_group"], as_index=False).agg(
+            potential=("potential_use", "sum"))
+        pot_spec2 = pot_spec2.merge(spec[["month_label", "spec_group", "revenue"]],
+                                    on=["month_label", "spec_group"], how="inner")
+        pot_spec2["achieve"] = np.where(pot_spec2["potential"] > 0,
+                                        pot_spec2["revenue"] / pot_spec2["potential"], np.nan)
+        pot_spec2 = pot_spec2[pot_spec2["spec_group"].isin(sel_top)]
+        fig = px.line(pot_spec2, x="month_label", y="achieve", color="spec_group", markers=True,
+                      title="Достижение потенциала по специализациям (выручка / потенциал)",
+                      labels={"achieve": "Достижение потенциала", "month_label": "", "spec_group": "Специализация"})
+        fig.update_yaxes(tickformat=".0%")
+        fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
+        st.plotly_chart(fig, use_container_width=True)
+
     spec_pivot = spec.pivot_table(index="spec_group", columns="month_label",
                                   values="revenue", aggfunc="sum").reindex(top_specs)
     st.subheader("Выручка по специализациям, ₽")
     st.dataframe(spec_pivot.style.format("{:,.0f}", na_rep="—"))
 
-# ------------------------------ ТАБ 3 -------------------------------------- #
-with tab3:
+# ------------------------------ ТАБ 4: ДИНАМИКА ВРАЧЕЙ --------------------- #
+with tab4:
     doctors = sorted(df["doctor"].unique())
-    sel_doc = st.multiselect("Врачи", doctors, default=doctors[: min(5, len(doctors))])
-    d3 = df[df["doctor"].isin(sel_doc)].sort_values("period")
+    sel_doc = st.multiselect("Врачи (можно выбрать одного или нескольких)", doctors,
+                             default=doctors[: min(5, len(doctors))])
+    sel_metric = st.selectbox("Метрика динамики", list(DOCTOR_METRICS.keys()), index=0)
+    col, fmt, unit, is_pct = DOCTOR_METRICS[sel_metric]
 
-    c1, c2 = st.columns(2)
-    with c1:
-        fig = px.line(d3, x="month_label", y="revenue", color="doctor", markers=True,
-                      title="Выручка врачей по месяцам",
-                      labels={"revenue": "₽", "month_label": "", "doctor": "Врач"})
-        fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
-        st.plotly_chart(fig, use_container_width=True)
-    with c2:
-        fig = px.line(d3, x="month_label", y="load", color="doctor", markers=True,
-                      title="Загрузка врачей по месяцам",
-                      labels={"load": "Загрузка", "month_label": "", "doctor": "Врач"})
+    d4 = df[df["doctor"].isin(sel_doc)].sort_values("period")
+
+    fig = px.line(d4, x="month_label", y=col, color="doctor", markers=True,
+                  title=f"{sel_metric} по месяцам",
+                  labels={col: f"{sel_metric}{(', ' + unit) if unit else ''}", "month_label": "", "doctor": "Врач"})
+    if is_pct:
         fig.update_yaxes(tickformat=".0%")
-        fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
-        st.plotly_chart(fig, use_container_width=True)
+    fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
+    st.plotly_chart(fig, use_container_width=True)
 
-    c1, c2 = st.columns(2)
-    with c1:
-        fig = px.line(d3, x="month_label", y="cost_hour", color="doctor", markers=True,
-                      title="Стоимость фактического часа",
-                      labels={"cost_hour": "₽ / час", "month_label": "", "doctor": "Врач"})
-        fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
-        st.plotly_chart(fig, use_container_width=True)
-    with c2:
-        fig = px.line(d3, x="month_label", y="first_share", color="doctor", markers=True,
-                      title="Доля первичных пациентов",
-                      labels={"first_share": "Доля первичных", "month_label": "", "doctor": "Врач"})
-        fig.update_yaxes(tickformat=".0%")
-        fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
-        st.plotly_chart(fig, use_container_width=True)
+    st.subheader("Часы: по графику vs время с пациентом")
+    fig = px.bar(d4, x="month_label", y=["hours_plan", "hours_patient"],
+                 color="doctor", barmode="group", facet_row="variable",
+                 title="Рабочие часы по графику и время с пациентом по месяцам",
+                 labels={"value": "часы", "month_label": "", "variable": ""})
+    fig.for_each_annotation(lambda a: a.update(text="Часы по графику" if "plan" in a.text else "Время с пациентом"))
+    fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
+    st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("Таблица по выбранным врачам")
-    show_cols = ["month_full", "doctor", "spec_raw", "revenue", "load", "cost_hour",
-                 "cost_visit", "visits", "patients", "first_share"]
-    t3 = d3[show_cols].copy()
-    t3.columns = ["Месяц", "Врач", "Специализация", "Выручка", "Загрузка",
-                  "₽/час", "₽/посещение", "Посещения", "Пациенты", "Доля первичных"]
+    st.subheader("Полная таблица по выбранным врачам")
+    show_cols = ["month_full", "doctor", "spec_raw", "hours_plan", "hours_patient",
+                 "revenue", "load", "cost_hour", "cost_visit", "visits",
+                 "patients", "first_visits", "first_share"]
+    t4 = d4[show_cols].copy()
+    t4.columns = ["Месяц", "Врач", "Специализация", "Часы по графику", "Время с пациентом",
+                  "Выручка", "Загрузка", "₽/час", "₽/посещение", "Посещения",
+                  "Пациенты", "Первичные", "Доля первичных"]
     st.dataframe(
-        t3.style.format({"Выручка": "{:,.0f}", "Загрузка": "{:.1%}", "₽/час": "{:,.0f}",
-                         "₽/посещение": "{:,.0f}", "Доля первичных": "{:.1%}"}),
+        t4.style.format({"Выручка": "{:,.0f}", "Загрузка": "{:.1%}", "₽/час": "{:,.0f}",
+                         "₽/посещение": "{:,.0f}", "Доля первичных": "{:.1%}",
+                         "Часы по графику": "{:,.1f}", "Время с пациентом": "{:,.1f}"}),
         use_container_width=True, hide_index=True,
     )
 
-# ------------------------------ ТАБ 4 -------------------------------------- #
-with tab4:
+# ------------------------------ ТАБ 5: СРАВНЕНИЕ ВРАЧЕЙ ------------------- #
+with tab5:
     last_lbl = months[-1]
-    d4 = df[df["month_label"] == last_lbl]
+    d5 = df[df["month_label"] == last_lbl]
 
     c1, c2 = st.columns([1, 2])
     with c1:
         st.subheader(f"Топ-10 врачей по выручке — {last_lbl}")
-        top10 = d4.nlargest(10, "revenue")[["doctor", "spec_group", "revenue"]]
+        top10 = d5.nlargest(10, "revenue")[["doctor", "spec_group", "revenue"]]
         top10.columns = ["Врач", "Специализация", "Выручка"]
         st.dataframe(top10.style.format({"Выручка": "{:,.0f}"}), use_container_width=True, hide_index=True)
 
     with c2:
-        fig = px.scatter(d4, x="load", y="revenue", color="spec_group", hover_name="doctor",
+        fig = px.scatter(d5, x="load", y="revenue", color="spec_group", hover_name="doctor",
                          size="visits", title=f"Врачи {last_lbl}: загрузка × выручка (размер — посещения)",
                          labels={"load": "Загрузка", "revenue": "Выручка, ₽", "spec_group": "Специализация"})
         fig.update_xaxes(tickformat=".0%")
@@ -572,12 +927,12 @@ with tab4:
                        "Посещения", "Пациенты", "Первичные", "Месяцев в отчетах", "Загрузка"]
     st.dataframe(
         doc_sum.style.format({"Выручка": "{:,.0f}", "Загрузка": "{:.1%}",
-                              "Часы по графику": "{:,.0f}", "Часы с пациентом": "{:,.0f}"}),
+                              "Часы по графику": "{:,.1f}", "Часы с пациентом": "{:,.1f}"}),
         use_container_width=True, hide_index=True,
     )
 
-# ------------------------------ ТАБ 5 -------------------------------------- #
-with tab5:
+# ------------------------------ ТАБ 6: ДАННЫЕ ------------------------------- #
+with tab6:
     st.subheader("Объединенная таблица (все отчеты, в хронологическом порядке)")
     out_cols = ["month_full", "source_file", "clinic", "doctor", "spec_raw", "spec_group",
                 "hours_plan", "hours_patient", "revenue", "visits", "patients", "first_visits",
@@ -590,11 +945,14 @@ with tab5:
 
     c1, c2 = st.columns(2)
     csv = out.to_csv(index=False).encode("utf-8-sig")
-    c1.download_button("⬇️ Скачать CSV", csv, "doctors_analytics.csv", "text/csv")
+    c1.download_button("⬇️ Скачать CSV (врачи)", csv, "doctors_analytics.csv", "text/csv")
     buf = BytesIO()
     with pd.ExcelWriter(buf, engine="xlsxwriter") as w:
         out.to_excel(w, index=False, sheet_name="Данные")
         clin.rename(columns={"month_label": "Месяц"}).to_excel(w, index=False, sheet_name="Клиника по месяцам")
-    c2.download_button("⬇️ Скачать Excel", buf.getvalue(), "doctors_analytics.xlsx",
+        if not pot.empty:
+            pot_monthly(pot).rename(columns={"month_label": "Месяц"}).to_excel(
+                w, index=False, sheet_name="Потенциал по месяцам")
+    c2.download_button("⬇️ Скачать Excel (все листы)", buf.getvalue(), "doctors_analytics.xlsx",
                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     st.dataframe(out, use_container_width=True, hide_index=True)
