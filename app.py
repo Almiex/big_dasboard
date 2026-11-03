@@ -193,10 +193,15 @@ BOTTOM_KEYS = [
 
 
 def _find_value_nearby(region: pd.DataFrame, r: int, c: int):
-    """Ищет число справа от ячейки (до 8 колонок), иначе — под ней."""
+    """Ищет число рядом с подписью: справа, сверху или снизу.
+    В отчетах КВО значения лежат строкой ВЫШЕ подписи, в других — справа/снизу."""
     row = region.iloc[r]
     for cc in range(c + 1, min(region.shape[1], c + 9)):
         v = pd.to_numeric(row.iloc[cc], errors="coerce")
+        if pd.notna(v):
+            return float(v)
+    if r - 1 >= 0:
+        v = pd.to_numeric(region.iloc[r - 1, c], errors="coerce")
         if pd.notna(v):
             return float(v)
     if r + 1 < region.shape[0]:
@@ -499,13 +504,16 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
+APP_VERSION = "2.5.0 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
+
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
 st.title("🏥 Аналитика работы врачей клиники")
 st.caption(
     "Загрузите от 2 до 12 отчетов «<Клиника>. Отчет по докторам, ММ.ГГГГ» (.xlsx/.xls). "
     "Порядок загрузки не важен — период определяется из шапки каждого файла. "
-    "Клиники между собой не сравниваются: каждая анализируется отдельно."
+    "Клиники между собой не сравниваются: каждая анализируется отдельно. "
+    f"Версия: {APP_VERSION}"
 )
 
 with st.sidebar:
@@ -534,7 +542,9 @@ with st.spinner("Читаю отчеты и выстраиваю хроноло�
     df, pot, kpi = load_all_reports([f.read() for f in uploaded], [f.name for f in uploaded])
 
 # ------------------------- КЛИНИКА: без смешивания ------------------------- #
-clinics = sorted(df["clinic"].unique())
+# По умолчанию открываем клинику с наибольшим числом периодов —
+# там полноценная динамика, а не одиночный месяц.
+clinics = list(df.groupby("clinic")["period"].nunique().sort_values(ascending=False).index)
 with st.sidebar:
     st.header("🏥 Клиника")
     if len(clinics) > 1:
@@ -872,17 +882,28 @@ with tab4:
         ("Доля первичных", "first_share", "", True),
         ("Стоимость посещения", "cost_visit", "₽", False),
     ]
+    single_month = len(months) < 2
+    if single_month:
+        st.info("По выбранной клинике загружен только один месяц — графики показаны "
+                "столбцами. Загрузите отчеты за несколько месяцев, чтобы увидеть динамику.")
     cols = st.columns(2)
     for i, (title, colname, unit, is_pct) in enumerate(metric_charts):
         with cols[i % 2]:
-            fig = px.line(d4, x="month_label", y=colname, color="doctor", markers=True,
-                          title=title,
-                          labels={colname: f"{title}{', ' + unit if unit else ''}",
-                                  "month_label": "", "doctor": "Врач"})
+            ylabel = f"{title}{', ' + unit if unit else ''}"
+            if single_month:
+                # один месяц: столбцы по врачам вместо линий из одной точки
+                fig = px.bar(d4, x="doctor", y=colname, color="doctor",
+                             title=f"{title} — {months[0]}",
+                             labels={colname: ylabel, "doctor": "Врач"})
+            else:
+                fig = px.line(d4, x="month_label", y=colname, color="doctor", markers=True,
+                              title=title,
+                              labels={colname: ylabel, "month_label": "", "doctor": "Врач"})
             if is_pct:
                 fig.update_yaxes(tickformat=".0%")
-            fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months},
-                              height=330, template="plotly_white")
+            if not single_month:
+                fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months})
+            fig.update_layout(height=330, template="plotly_white")
             st.plotly_chart(fig, use_container_width=True)
 
     st.subheader("Таблица по выбранным врачам")
