@@ -98,22 +98,6 @@ SPEC_RULES = [
     (("терапевт",), "Терапия"),
 ]
 
-# Метрики для динамики врачей: (колонка, формат, единица, это_проценты)
-DOCTOR_METRICS = {
-    "Выручка":                    ("revenue", ",.0f", "₽", False),
-    "Загрузка":                   ("load", ".1%", "", True),
-    "Стоимость фактического часа":("cost_hour", ",.0f", "₽", False),
-    "Рабочих часов по графику":   ("hours_plan", ",.1f", "ч", False),
-    "Время с пациентом (фактических приемов)": ("hours_patient", ",.1f", "ч", False),
-    "Посещения":                  ("visits", ",.0f", "", False),
-    "Пациенты":                   ("patients", ",.0f", "", False),
-    "Первичные":                  ("first_visits", ",.0f", "", False),
-    "Доля первичных":             ("first_share", ".1%", "", True),
-    "Стоимость посещения":        ("cost_visit", ",.0f", "₽", False),
-    "Выручка на пациента":        ("revenue_per_patient", ",.0f", "₽", False),
-}
-
-
 def group_spec(raw: str) -> str:
     s = norm(raw)
     if not s or s == "nan":
@@ -678,19 +662,20 @@ with tab1:
         fig.add_bar(x=clin["month_label"], y=clin["visits"], name="Посещения", marker_color="#4C78A8")
         fig.add_bar(x=clin["month_label"], y=clin["patients"], name="Пациенты", marker_color="#72B7B2")
         fig.add_bar(x=clin["month_label"], y=clin["first_visits"], name="Первичные", marker_color="#F58518")
-        fig.add_scatter(x=clin["month_label"], y=clin["visits_per_patient"],
-                        name="Посещений на 1 пациента", yaxis="y2", mode="lines+markers",
-                        line=dict(color="#C62828", width=3))
         fig.update_layout(title="Посещения / пациенты / первичные", barmode="group",
                           yaxis=dict(title="кол-во"),
-                          yaxis2=dict(title="визитов на пациента", overlaying="y", side="right"),
                           xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
+        st.plotly_chart(fig, use_container_width=True)
+        fig = px.line(clin, x="month_label", y="visits_per_patient", markers=True,
+                      text="visits_per_patient", title="Посещений на 1 пациента (отдельно)",
+                      labels={"visits_per_patient": "визитов на пациента", "month_label": ""})
+        fig.update_traces(texttemplate="%{text:.2f}", textposition="top center")
+        fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
         st.plotly_chart(fig, use_container_width=True)
         st.caption(
             "Логика: **Посещения** — все визиты за месяц; **Пациенты** — уникальные люди "
             "(визитов всегда ≥ пациентов: один человек может прийти несколько раз); "
-            "**Первичные** — первые обращения в клинику за месяц. "
-            "Красная линия — среднее число визитов на одного пациента (лояльность базы)."
+            "**Первичные** — первые обращения в клинику за месяц."
         )
 
     c1, c2 = st.columns(2)
@@ -865,40 +850,42 @@ with tab3:
 
 # ------------------------------ ТАБ 4: ДИНАМИКА ВРАЧЕЙ --------------------- #
 with tab4:
-    doctors = sorted(df["doctor"].unique())
-    sel_doc = st.multiselect("Врачи (можно выбрать одного или нескольких)", doctors,
-                             default=doctors[: min(5, len(doctors))])
-    sel_metric = st.selectbox("Метрика динамики", list(DOCTOR_METRICS.keys()), index=0)
-    col, fmt, unit, is_pct = DOCTOR_METRICS[sel_metric]
+    st.subheader("Динамика врачей: отдельный график по каждой метрике")
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        spec_list = sorted(df["spec_group"].dropna().unique())
+        sel_spec = st.selectbox("Специализация", spec_list)
+    docs_in_spec = sorted(df.loc[df["spec_group"] == sel_spec, "doctor"].unique())
+    with c2:
+        sel_docs = st.multiselect("Врачи этой специализации", docs_in_spec, default=docs_in_spec)
+    d4 = df[(df["spec_group"] == sel_spec) & (df["doctor"].isin(sel_docs))].sort_values("period")
 
-    d4 = df[df["doctor"].isin(sel_doc)].sort_values("period")
+    metric_charts = [
+        ("Рабочих часов по графику", "hours_plan", "ч", False),
+        ("Время с пациентом (факт. приемов)", "hours_patient", "ч", False),
+        ("Стоимость оказанных услуг", "revenue", "₽", False),
+        ("Загрузка", "load", "", True),
+        ("Стоимость фактического часа", "cost_hour", "₽", False),
+        ("Посещения", "visits", "", False),
+        ("Пациенты", "patients", "", False),
+        ("Первичные", "first_visits", "", False),
+        ("Доля первичных", "first_share", "", True),
+        ("Стоимость посещения", "cost_visit", "₽", False),
+    ]
+    cols = st.columns(2)
+    for i, (title, colname, unit, is_pct) in enumerate(metric_charts):
+        with cols[i % 2]:
+            fig = px.line(d4, x="month_label", y=colname, color="doctor", markers=True,
+                          title=title,
+                          labels={colname: f"{title}{', ' + unit if unit else ''}",
+                                  "month_label": "", "doctor": "Врач"})
+            if is_pct:
+                fig.update_yaxes(tickformat=".0%")
+            fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months},
+                              height=330, template="plotly_white")
+            st.plotly_chart(fig, use_container_width=True)
 
-    fig = px.line(d4, x="month_label", y=col, color="doctor", markers=True,
-                  title=f"{sel_metric} по месяцам",
-                  labels={col: f"{sel_metric}{(', ' + unit) if unit else ''}", "month_label": "", "doctor": "Врач"})
-    if is_pct:
-        fig.update_yaxes(tickformat=".0%")
-    fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.subheader("Часы: по графику vs время с пациентом")
-    hours_long = pd.concat([
-        d4[["month_label", "doctor", "hours_plan"]]
-        .rename(columns={"hours_plan": "hours"}).assign(Вид="Часы по графику"),
-        d4[["month_label", "doctor", "hours_patient"]]
-        .rename(columns={"hours_patient": "hours"})
-        .assign(Вид="Время с пациентом (фактических приемов)"),
-    ], ignore_index=True)
-    fig = px.bar(hours_long, x="month_label", y="hours", color="doctor", barmode="group",
-                 facet_row="Вид",
-                 category_orders={"Вид": ["Часы по графику", "Время с пациентом (фактических приемов)"]},
-                 title="Рабочие часы по графику и время с пациентом по месяцам",
-                 labels={"hours": "часы", "month_label": "", "Вид": ""})
-    fig.for_each_annotation(lambda a: a.update(text=a.text.replace("Вид=", "")))
-    fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.subheader("Полная таблица по выбранным врачам")
+    st.subheader("Таблица по выбранным врачам")
     show_cols = ["month_full", "doctor", "spec_raw", "hours_plan", "hours_patient",
                  "revenue", "load", "cost_hour", "cost_visit", "visits",
                  "patients", "first_visits", "first_share"]
