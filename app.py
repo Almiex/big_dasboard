@@ -504,7 +504,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.6.4 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.6.6 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -599,12 +599,15 @@ PLOTLY = dict(template="plotly_white", height=420)
 
 # Единая рамка для всех графиков: скругленные углы, одинаковый размер с соседом
 st.markdown("""<style>
+/* Блоки зафиксированы: скроллбаров нет, все карточки одного размера */
 div[data-testid="stPlotlyChart"] {
-    border: 1px solid #e4e4e7; border-radius: 14px;
-    padding: 12px 12px 18px 12px; background: #ffffff;
-    margin: 4px 2px 12px 2px;
-    box-sizing: border-box;
-    box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+    overflow: hidden !important;
+    min-height: 355px;
+    border-radius: 12px;
+    outline: 1px solid #e4e4e7;
+    outline-offset: 5px;
+    box-shadow: 0 0 0 5px #ffffff, 0 2px 8px rgba(0,0,0,0.10);
+    margin: 8px 4px 14px 4px;
 }
 </style>""", unsafe_allow_html=True)
 
