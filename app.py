@@ -504,7 +504,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.6.3 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.6.4 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -601,7 +601,9 @@ PLOTLY = dict(template="plotly_white", height=420)
 st.markdown("""<style>
 div[data-testid="stPlotlyChart"] {
     border: 1px solid #e4e4e7; border-radius: 14px;
-    padding: 10px 10px 4px 10px; background: #ffffff;
+    padding: 12px 12px 18px 12px; background: #ffffff;
+    margin: 4px 2px 12px 2px;
+    box-sizing: border-box;
     box-shadow: 0 1px 4px rgba(0,0,0,0.07);
 }
 </style>""", unsafe_allow_html=True)
@@ -965,8 +967,14 @@ def _render_tab4():
                     fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months})
                     _txt = val_fmt.replace("%{y", "%{text")
                     fig.update_traces(texttemplate=_txt, textposition="top center")
-                    for _j, _tr in enumerate(fig.data):
-                        _tr.textposition = ("top center", "bottom center", "top left")[_j % 3]
+                    _pos_cycle = ("top center", "bottom center", "top left", "bottom right", "top right")
+                    for _tr in fig.data:
+                        _y = list(_tr.y)
+                        _order = sorted(range(len(_y)), key=lambda k: (_y[k] is None, _y[k]))
+                        _pos = ["top center"] * len(_y)
+                        for _rank, _k in enumerate(_order):
+                            _pos[_k] = _pos_cycle[min(_rank, len(_pos_cycle) - 1)]
+                        _tr.textposition = _pos
                         _tr.cliponaxis = False
                     _vals = d4[colname].dropna()
                     if len(_vals):
