@@ -530,7 +530,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.7.9 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.8.2 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -901,7 +901,9 @@ def _render_tab3():
                      title="Выручка по специализациям (структура по месяцам)",
                      labels={"revenue": "выручка, ₽", "month_label": "месяц", "spec_group": "специализация"})
         fig.update_traces(hovertemplate="специализация: %{fullData.name}<br>месяц: %{x}<br>выручка: %{y:,.0f} ₽<extra></extra>")
-        fig.update_layout(barmode="stack", xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
+        fig.update_traces(width=0.9)
+        fig.update_layout(barmode="stack", xaxis={"categoryorder": "array", "categoryarray": months},
+                          template="plotly_white", height=840)
         with st.container(border=True):
             st.plotly_chart(fig, use_container_width=True)
 
