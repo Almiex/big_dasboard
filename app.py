@@ -61,6 +61,32 @@ HEADER_ALIASES = {
     "first_visits": ["кол-во первичных", "первичные"],
 }
 
+# Фиксированные цвета: за каждой специализацией закреплён свой цвет
+# во ВСЕХ графиках (иначе Plotly раздаёт цвета по порядку и они «плывут»)
+SPEC_COLORS = {
+    "Терапия": "#4C78A8",
+    "Травматология-ортопедия": "#F58518",
+    "Гинекология": "#54A24B",
+    "УЗИ / ФД": "#E45756",
+    "Неврология": "#72B7B2",
+    "Дерматовенерология": "#EECA3B",
+    "Хирургия": "#B279A2",
+    "Кардиология": "#FF9DA6",
+    "ЛОР": "#9D755D",
+    "Урология": "#BAB0AC",
+    "Гастроэнтерология": "#1f77b4",
+    "Эндокринология": "#ff7f0e",
+    "Онкология": "#2ca02c",
+    "Аллергология": "#d62728",
+    "Проктология": "#9467bd",
+    "Флебология": "#8c564b",
+    "Пульмонология": "#e377c2",
+    "Психология": "#17becf",
+    "Мануальная терапия": "#7f7f7f",
+    "Дерматология": "#bcbd22",
+    "Без специализации": "#c7c7c7",
+}
+
 # Алиасы заголовков листа «Потенциал»
 POT_ALIASES = {
     "spec":        ["специализация"],
@@ -504,7 +530,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.7.1 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.7.3 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -857,6 +883,7 @@ def _render_tab3():
             return
 
         fig = px.bar(d2, x="month_label", y="revenue", color="spec_group",
+                     color_discrete_map=SPEC_COLORS,
                      title="Выручка по специализациям (структура по месяцам)",
                      labels={"revenue": "выручка, ₽", "month_label": "месяц", "spec_group": "специализация"})
         fig.update_traces(hovertemplate="специализация: %{fullData.name}<br>месяц: %{x}<br>выручка: %{y:,.0f} ₽<extra></extra>")
@@ -864,12 +891,14 @@ def _render_tab3():
         st.plotly_chart(fig, use_container_width=True)
 
         fig = px.line(d2, x="month_label", y="load", color="spec_group", markers=True,
+                      color_discrete_map=SPEC_COLORS,
                       title="Загрузка по специализациям",
                       labels={"load": "загрузка", "month_label": "месяц", "spec_group": "специализация"})
         fig.update_traces(hovertemplate="специализация: %{fullData.name}<br>месяц: %{x}<br>загрузка: %{y:.1%}<extra></extra>")
         fig.update_yaxes(tickformat=".0%")
         fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
         st.plotly_chart(fig, use_container_width=True)
+        st.caption("Загрузка — занятость часов (время с пациентом ÷ часы по графику), деньги не учитываются. Лидер по загрузке ≠ лидер по выручке: сравнивайте с графиком «Достижение потенциала» — он про деньги к плану-вместимости.")
 
         if not pot.empty:
             pot_spec2 = pot.groupby(["month_label", "spec_group"], as_index=False).agg(
@@ -880,6 +909,7 @@ def _render_tab3():
                                             pot_spec2["revenue"] / pot_spec2["potential"], np.nan)
             pot_spec2 = pot_spec2[pot_spec2["spec_group"].isin(sel_top)]
             fig = px.bar(pot_spec2, x="month_label", y="achieve", color="spec_group", barmode="group",
+                         color_discrete_map=SPEC_COLORS,
                          title="Достижение потенциала по специализациям (выручка / потенциал)",
                          labels={"achieve": "достижение потенциала", "month_label": "месяц", "spec_group": "специализация"})
             fig.add_hline(y=1.0, line_dash="dash", line_color="#7a7a7a",
@@ -893,6 +923,7 @@ def _render_tab3():
         spec_pivot = spec.pivot_table(index="spec_group", columns="month_label",
                                       values="revenue", aggfunc="sum").reindex(top_specs)
         st.subheader("Выручка по специализациям, ₽")
+        spec_pivot.index.name = "Специализация"
         st.dataframe(spec_pivot.style.format("{:,.0f}", na_rep="—"))
 
     # ------------------------------ ТАБ 4: ДИНАМИКА ВРАЧЕЙ --------------------- #
@@ -1009,6 +1040,7 @@ def _render_tab5():
 
         with c2:
             fig = px.scatter(d5, x="load", y="revenue", color="spec_group", hover_name="doctor",
+                         color_discrete_map=SPEC_COLORS,
                              size="visits", title=f"Врачи {last_lbl}: загрузка × выручка (размер — посещения)",
                              labels={"load": "Загрузка", "revenue": "Выручка, ₽", "spec_group": "Специализация"})
             fig.update_xaxes(tickformat=".0%")
