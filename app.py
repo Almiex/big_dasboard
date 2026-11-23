@@ -504,7 +504,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.7.0 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.7.1 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -781,6 +781,7 @@ def _render_tab2():
                                   xaxis={"categoryorder": "array", "categoryarray": months},
                                   yaxis=dict(tickformat=".0%"), **PLOTLY)
                 st.plotly_chart(fig, use_container_width=True)
+                st.caption("100% = выполнен план вместимости: все ставки загружены на целевую загрузку 80% по штатной цене часа. Потенциал = часы по графику × 0,8 × стоимость часа (лист «Потенциал»). Выше 100% — работа сверх цели или неучтённые ставки; ниже — недобор до плана.")
             with c2:
                 fig = go.Figure()
                 fig.add_bar(x=pm["month_label"], y=pm["capacity_use_calc"], name="Использование мощностей",
@@ -791,6 +792,7 @@ def _render_tab2():
                                   xaxis={"categoryorder": "array", "categoryarray": months},
                                   yaxis=dict(tickformat=".0%"), **PLOTLY)
                 st.plotly_chart(fig, use_container_width=True)
+                st.caption("100% = весь фонд рабочего времени занят приёмами пациентов. Считается в часах (время с пациентом ÷ часы по графику), деньги не учитываются. Целевой уровень клиники — 80%.")
 
             if "alt_potential" in pm.columns and pm["alt_potential"].notna().any():
                 fig = go.Figure()
@@ -886,6 +888,7 @@ def _render_tab3():
             fig.update_yaxes(tickformat=".0%")
             fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
             st.plotly_chart(fig, use_container_width=True)
+            st.caption("100% = выполнен план вместимости: все ставки загружены на целевую загрузку 80% по штатной цене часа. Потенциал = часы по графику × 0,8 × стоимость часа (лист «Потенциал»). Выше 100% — работа сверх цели или неучтённые ставки; ниже — недобор до плана.")
 
         spec_pivot = spec.pivot_table(index="spec_group", columns="month_label",
                                       values="revenue", aggfunc="sum").reindex(top_specs)
