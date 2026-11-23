@@ -530,7 +530,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.8.8 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.8.9 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -962,7 +962,11 @@ def _render_tab4():
         # защита от устаревшего состояния виджетов (при смене файлов/клиники):
         # выбранные врачи, которых нет в списке, отбрасываем; если все отброшены — берем всех
         sel_docs = [d for d in sel_docs if d in docs_in_spec] or docs_in_spec
-        d4 = df[(df["spec_group"] == sel_spec) & (df["doctor"].isin(sel_docs))].sort_values("period")
+        sel_months_t4 = st.multiselect("Месяцы для отображения", months, default=months,
+                                       key=f"tab4_months_{sel_clinic}_{sel_spec}")
+        sel_months_t4 = [m for m in sel_months_t4 if m in months] or months
+        d4 = df[(df["spec_group"] == sel_spec) & (df["doctor"].isin(sel_docs))
+                & (df["month_label"].isin(sel_months_t4))].sort_values("period")
         if d4.empty:
             st.info("Нет данных по выбранным врачам — проверьте выбор специализации и врачей.")
             return
@@ -1123,6 +1127,9 @@ def _render_tab5():
 
 def _render_tab6():
         st.subheader("Объединенная таблица (все отчеты, в хронологическом порядке)")
+        sel_months_t6 = st.multiselect("Месяцы для отображения", months, default=months,
+                                       key=f"tab6_months_{sel_clinic}")
+        df = df[df["month_label"].isin(sel_months_t6)] if sel_months_t6 else df
         out_cols = ["month_full", "source_file", "clinic", "doctor", "spec_raw", "spec_group",
                     "hours_plan", "hours_patient", "revenue", "visits", "patients", "first_visits",
                     "load", "cost_hour", "cost_visit", "revenue_per_patient", "first_share"]
