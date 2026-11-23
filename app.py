@@ -504,7 +504,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.6.8 (2026-11-03)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.7.0 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -740,6 +740,10 @@ def _render_tab2():
                                         "alt_potential", "diff_classic"] if c in kpi.columns]
                 if len(kpi_cols) > 1:
                     pm = pm.merge(kpi[kpi_cols].drop_duplicates("period"), on="period", how="left")
+                # значения из нижнего блока отчёта хранятся как числа-проценты (57.1), а не доли
+                for _c in ("capacity_use", "pot_achieved"):
+                    if _c in pm.columns:
+                        pm[_c] = pm[_c].where(pm[_c].isna() | (pm[_c] <= 1.5), pm[_c] / 100)
 
             last = pm.iloc[-1]
             prev = pm.iloc[-2] if len(pm) > 1 else None
@@ -773,9 +777,6 @@ def _render_tab2():
                             marker=val_fill(pm["achieve_calc"], "#9E9AC8", "#3F007D"),
                             text=[f"{v:.1%}" for v in pm["achieve_calc"]], textposition="outside")
                 fig.update_traces(hovertemplate="месяц: %{x}<br>%{fullData.name}: %{y:.1%}<extra></extra>")
-                if "pot_achieved" in pm.columns and pm["pot_achieved"].notna().any():
-                    fig.add_scatter(x=pm["month_label"], y=pm["pot_achieved"], name="Из отчета",
-                                    mode="lines+markers", line=dict(color="#F58518", dash="dash"))
                 fig.update_layout(title="Достижение потенциала (выручка / потенциал)",
                                   xaxis={"categoryorder": "array", "categoryarray": months},
                                   yaxis=dict(tickformat=".0%"), **PLOTLY)
@@ -786,9 +787,6 @@ def _render_tab2():
                             marker=val_fill(pm["capacity_use_calc"], "#FD8D3C", "#7F2704"),
                             text=[f"{v:.1%}" for v in pm["capacity_use_calc"]], textposition="outside")
                 fig.update_traces(hovertemplate="месяц: %{x}<br>%{fullData.name}: %{y:.1%}<extra></extra>")
-                if "capacity_use" in pm.columns and pm["capacity_use"].notna().any():
-                    fig.add_scatter(x=pm["month_label"], y=pm["capacity_use"], name="Из отчета",
-                                    mode="lines+markers", line=dict(color="#08519C", dash="dash"))
                 fig.update_layout(title="Использование мощностей (время с пациентом / рабочие часы)",
                                   xaxis={"categoryorder": "array", "categoryarray": months},
                                   yaxis=dict(tickformat=".0%"), **PLOTLY)
@@ -802,12 +800,11 @@ def _render_tab2():
                             marker_color="#F58518")
                 fig.update_traces(hovertemplate="месяц: %{x}<br>%{fullData.name}: %{y:,.0f} ₽<extra></extra>")
                 if "diff_classic" in pm.columns and pm["diff_classic"].notna().any():
-                    fig.add_scatter(x=pm["month_label"], y=pm["diff_classic"], name="Разница с классическим",
-                                    mode="lines+markers", yaxis="y2", line=dict(color="#C62828", width=3))
-                fig.update_layout(title="Альтернативный потенциал",
+                    fig.add_bar(x=pm["month_label"], y=pm["diff_classic"],
+                                name="Разница (альтернативный − классический)", marker_color="#C62828")
+                fig.update_layout(title="Альтернативный потенциал", barmode="group",
                                   xaxis={"categoryorder": "array", "categoryarray": months},
-                                  yaxis=dict(title="₽"), yaxis2=dict(title="Разница, ₽", overlaying="y", side="right"),
-                                  **PLOTLY)
+                                  yaxis=dict(title="₽"), **PLOTLY)
                 st.plotly_chart(fig, use_container_width=True)
 
             conclusions = (kpi[kpi["conclusion"].notna()][["month_label", "conclusion"]]
@@ -880,9 +877,11 @@ def _render_tab3():
             pot_spec2["achieve"] = np.where(pot_spec2["potential"] > 0,
                                             pot_spec2["revenue"] / pot_spec2["potential"], np.nan)
             pot_spec2 = pot_spec2[pot_spec2["spec_group"].isin(sel_top)]
-            fig = px.line(pot_spec2, x="month_label", y="achieve", color="spec_group", markers=True,
-                          title="Достижение потенциала по специализациям (выручка / потенциал)",
-                          labels={"achieve": "достижение потенциала", "month_label": "месяц", "spec_group": "специализация"})
+            fig = px.bar(pot_spec2, x="month_label", y="achieve", color="spec_group", barmode="group",
+                         title="Достижение потенциала по специализациям (выручка / потенциал)",
+                         labels={"achieve": "достижение потенциала", "month_label": "месяц", "spec_group": "специализация"})
+            fig.add_hline(y=1.0, line_dash="dash", line_color="#7a7a7a",
+                          annotation_text="потенциал достигнут (100%)")
             fig.update_traces(hovertemplate="специализация: %{fullData.name}<br>месяц: %{x}<br>достижение потенциала: %{y:.1%}<extra></extra>")
             fig.update_yaxes(tickformat=".0%")
             fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
