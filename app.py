@@ -530,7 +530,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.7.3 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.7.6 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -685,7 +685,8 @@ def _render_tab1():
         fig.update_layout(title="Выручка клиники по месяцам (заливка темнеет с ростом суммы)",
                           xaxis={"categoryorder": "array", "categoryarray": months},
                           yaxis=dict(title="Выручка, ₽"), showlegend=False, **PLOTLY)
-        st.plotly_chart(fig, use_container_width=True)
+        with st.container(border=True):
+            st.plotly_chart(fig, use_container_width=True)
 
         # --- Загрузка: отдельный график с подписями ---
         fig = go.Figure()
@@ -698,7 +699,8 @@ def _render_tab1():
         fig.update_layout(title="Загрузка клиники по месяцам (время с пациентом / часы по графику)",
                           xaxis={"categoryorder": "array", "categoryarray": months},
                           yaxis=dict(title="Загрузка", tickformat=".0%"), showlegend=False, **PLOTLY)
-        st.plotly_chart(fig, use_container_width=True)
+        with st.container(border=True):
+            st.plotly_chart(fig, use_container_width=True)
 
         c1, c2 = st.columns(2)
         with c1:
@@ -709,7 +711,8 @@ def _render_tab1():
             fig.update_traces(hovertemplate="месяц: %{x}<br>%{fullData.name}: %{y:,.1f} ч<extra></extra>")
             fig.update_layout(title="Часы по графику vs время с пациентом", barmode="group",
                               xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
-            st.plotly_chart(fig, use_container_width=True)
+            with st.container(border=True):
+                st.plotly_chart(fig, use_container_width=True)
         with c2:
             fig = go.Figure()
             fig.add_bar(x=clin["month_label"], y=clin["visits"], name="Посещения", marker_color="#4C78A8")
@@ -719,18 +722,20 @@ def _render_tab1():
             fig.update_layout(title="Посещения / пациенты / первичные", barmode="group",
                               yaxis=dict(title="кол-во"),
                               xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
-            st.plotly_chart(fig, use_container_width=True)
+            with st.container(border=True):
+                st.plotly_chart(fig, use_container_width=True)
             fig = px.line(clin, x="month_label", y="visits_per_patient", markers=True,
                           text="visits_per_patient", title="Посещений на 1 пациента (отдельно)",
                           labels={"visits_per_patient": "визитов на пациента", "month_label": "месяц"})
             fig.update_traces(texttemplate="%{text:.2f}", textposition="top center")
             fig.update_traces(hovertemplate="месяц: %{x}<br>визитов на пациента: %{text:.2f}<extra></extra>")
             fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
-            st.plotly_chart(fig, use_container_width=True)
+            with st.container(border=True):
+                st.plotly_chart(fig, use_container_width=True)
             st.caption(
                 "Логика: **Посещения** — все визиты за месяц; **Пациенты** — уникальные люди "
                 "(визитов всегда ≥ пациентов: один человек может прийти несколько раз); "
-                "**Первичные** — первые обращения в клинику за месяц."
+                "**Первичные** — первые обращения из отчета."
             )
 
         c1, c2 = st.columns(2)
@@ -741,13 +746,15 @@ def _render_tab1():
             fig.update_traces(hovertemplate="месяц: %{x}<br>выручка на пациента: %{text:,.0f} ₽<extra></extra>")
             fig.update_traces(hovertemplate="месяц: %{x}<br>стоимость посещения: %{text:,.0f} ₽<extra></extra>")
             fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
-            st.plotly_chart(fig, use_container_width=True)
+            with st.container(border=True):
+                st.plotly_chart(fig, use_container_width=True)
         with c2:
             fig = px.line(clin, x="month_label", y="rev_per_patient", markers=True, text="rev_per_patient",
                           title="Выручка на пациента", labels={"rev_per_patient": "₽ / пациент", "month_label": "месяц"})
             fig.update_traces(texttemplate="%{text:,.0f}", textposition="top center")
             fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
-            st.plotly_chart(fig, use_container_width=True)
+            with st.container(border=True):
+                st.plotly_chart(fig, use_container_width=True)
 
     # ------------------------------ ТАБ 2: ПОТЕНЦИАЛ --------------------------- #
 
@@ -794,7 +801,8 @@ def _render_tab2():
             fig.update_layout(title="Потенциал vs фактическая выручка по месяцам", barmode="group",
                               xaxis={"categoryorder": "array", "categoryarray": months},
                               yaxis=dict(title="₽"), **PLOTLY)
-            st.plotly_chart(fig, use_container_width=True)
+            with st.container(border=True):
+                st.plotly_chart(fig, use_container_width=True)
 
             c1, c2 = st.columns(2)
             with c1:
@@ -806,7 +814,8 @@ def _render_tab2():
                 fig.update_layout(title="Достижение потенциала (выручка / потенциал)",
                                   xaxis={"categoryorder": "array", "categoryarray": months},
                                   yaxis=dict(tickformat=".0%"), **PLOTLY)
-                st.plotly_chart(fig, use_container_width=True)
+                with st.container(border=True):
+                    st.plotly_chart(fig, use_container_width=True)
                 st.caption("100% = выполнен план вместимости: все ставки загружены на целевую загрузку 80% по штатной цене часа. Потенциал = часы по графику × 0,8 × стоимость часа (лист «Потенциал»). Выше 100% — работа сверх цели или неучтённые ставки; ниже — недобор до плана.")
             with c2:
                 fig = go.Figure()
@@ -817,7 +826,8 @@ def _render_tab2():
                 fig.update_layout(title="Использование мощностей (время с пациентом / рабочие часы)",
                                   xaxis={"categoryorder": "array", "categoryarray": months},
                                   yaxis=dict(tickformat=".0%"), **PLOTLY)
-                st.plotly_chart(fig, use_container_width=True)
+                with st.container(border=True):
+                    st.plotly_chart(fig, use_container_width=True)
                 st.caption("100% = весь фонд рабочего времени занят приёмами пациентов. Считается в часах (время с пациентом ÷ часы по графику), деньги не учитываются. Целевой уровень клиники — 80%.")
 
             if "alt_potential" in pm.columns and pm["alt_potential"].notna().any():
@@ -827,13 +837,11 @@ def _render_tab2():
                 fig.add_bar(x=pm["month_label"], y=pm["alt_potential"], name="Альтернативный потенциал",
                             marker_color="#F58518")
                 fig.update_traces(hovertemplate="месяц: %{x}<br>%{fullData.name}: %{y:,.0f} ₽<extra></extra>")
-                if "diff_classic" in pm.columns and pm["diff_classic"].notna().any():
-                    fig.add_bar(x=pm["month_label"], y=pm["diff_classic"],
-                                name="Разница (альтернативный − классический)", marker_color="#C62828")
                 fig.update_layout(title="Альтернативный потенциал", barmode="group",
                                   xaxis={"categoryorder": "array", "categoryarray": months},
                                   yaxis=dict(title="₽"), **PLOTLY)
-                st.plotly_chart(fig, use_container_width=True)
+                with st.container(border=True):
+                    st.plotly_chart(fig, use_container_width=True)
 
             conclusions = (kpi[kpi["conclusion"].notna()][["month_label", "conclusion"]]
                            if (not kpi.empty and "conclusion" in kpi.columns) else pd.DataFrame())
@@ -868,7 +876,8 @@ def _render_tab2():
             fig = px.imshow(pot_pivot, text_auto=".0%", aspect="auto", color_continuous_scale="RdYlGn",
                             title="Достижение потенциала по специализациям и месяцам")
             fig.update_layout(height=max(400, 20 * len(pot_pivot)))
-            st.plotly_chart(fig, use_container_width=True)
+            with st.container(border=True):
+                st.plotly_chart(fig, use_container_width=True)
 
     # ------------------------------ ТАБ 3: СПЕЦИАЛИЗАЦИИ ---------------------- #
 
@@ -888,7 +897,8 @@ def _render_tab3():
                      labels={"revenue": "выручка, ₽", "month_label": "месяц", "spec_group": "специализация"})
         fig.update_traces(hovertemplate="специализация: %{fullData.name}<br>месяц: %{x}<br>выручка: %{y:,.0f} ₽<extra></extra>")
         fig.update_layout(barmode="stack", xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
-        st.plotly_chart(fig, use_container_width=True)
+        with st.container(border=True):
+            st.plotly_chart(fig, use_container_width=True)
 
         fig = px.line(d2, x="month_label", y="load", color="spec_group", markers=True,
                       color_discrete_map=SPEC_COLORS,
@@ -897,7 +907,8 @@ def _render_tab3():
         fig.update_traces(hovertemplate="специализация: %{fullData.name}<br>месяц: %{x}<br>загрузка: %{y:.1%}<extra></extra>")
         fig.update_yaxes(tickformat=".0%")
         fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
-        st.plotly_chart(fig, use_container_width=True)
+        with st.container(border=True):
+            st.plotly_chart(fig, use_container_width=True)
         st.caption("Загрузка — занятость часов (время с пациентом ÷ часы по графику), деньги не учитываются. Лидер по загрузке ≠ лидер по выручке: сравнивайте с графиком «Достижение потенциала» — он про деньги к плану-вместимости.")
 
         if not pot.empty:
@@ -917,7 +928,8 @@ def _render_tab3():
             fig.update_traces(hovertemplate="специализация: %{fullData.name}<br>месяц: %{x}<br>достижение потенциала: %{y:.1%}<extra></extra>")
             fig.update_yaxes(tickformat=".0%")
             fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
-            st.plotly_chart(fig, use_container_width=True)
+            with st.container(border=True):
+                st.plotly_chart(fig, use_container_width=True)
             st.caption("100% = выполнен план вместимости: все ставки загружены на целевую загрузку 80% по штатной цене часа. Потенциал = часы по графику × 0,8 × стоимость часа (лист «Потенциал»). Выше 100% — работа сверх цели или неучтённые ставки; ниже — недобор до плана.")
 
         spec_pivot = spec.pivot_table(index="spec_group", columns="month_label",
@@ -991,7 +1003,7 @@ def _render_tab4():
                         fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months})
                         _txt = val_fmt.replace("%{y", "%{text")
                         fig.update_traces(texttemplate=_txt, textposition="top center")
-                        _pos_cycle = ("top left", "bottom right", "top center", "bottom left", "top right", "bottom center")
+                        _pos_cycle = ("top left", "top right", "bottom left", "bottom right", "top center", "bottom center")
                         for _tr in fig.data:
                             _y = list(_tr.y)
                             _order = sorted(range(len(_y)), key=lambda k: (_y[k] is None, _y[k]))
@@ -1000,6 +1012,7 @@ def _render_tab4():
                                 _pos[_k] = _pos_cycle[min(_rank, len(_pos_cycle) - 1)]
                             _tr.textposition = _pos
                             _tr.cliponaxis = False
+                            _tr.marker.size = 9
                         _vals = d4[colname].dropna()
                         if len(_vals):
                             _lo, _hi = float(_vals.min()), float(_vals.max())
@@ -1007,8 +1020,9 @@ def _render_tab4():
                             fig.update_yaxes(range=[_lo - _pad, _hi + _pad])
                     if is_pct:
                         fig.update_yaxes(tickformat=".0%")
-                    fig.update_layout(height=330, template="plotly_white")
-                    st.plotly_chart(fig, use_container_width=True)
+                    fig.update_layout(height=400, template="plotly_white")
+                    with st.container(border=True):
+                        st.plotly_chart(fig, use_container_width=True)
 
         st.subheader("Таблица по выбранным врачам")
         show_cols = ["month_full", "doctor", "spec_raw", "hours_plan", "hours_patient",
@@ -1045,7 +1059,8 @@ def _render_tab5():
                              labels={"load": "Загрузка", "revenue": "Выручка, ₽", "spec_group": "Специализация"})
             fig.update_xaxes(tickformat=".0%")
             fig.update_layout(**PLOTLY)
-            st.plotly_chart(fig, use_container_width=True)
+            with st.container(border=True):
+                st.plotly_chart(fig, use_container_width=True)
 
         st.subheader("Матрица «врач × месяц» — загрузка")
         pivot_load = df.pivot_table(index="doctor", columns="month_label", values="load")
@@ -1054,7 +1069,8 @@ def _render_tab5():
         fig = px.imshow(pivot_load, text_auto=".0%", aspect="auto", color_continuous_scale="Blues",
                         title="Загрузка врачей по месяцам")
         fig.update_layout(height=max(400, 18 * len(pivot_load)))
-        st.plotly_chart(fig, use_container_width=True)
+        with st.container(border=True):
+            st.plotly_chart(fig, use_container_width=True)
 
         st.subheader("Сводка по врачам за весь период")
         doc_sum = df.groupby(["doctor", "spec_group"], as_index=False).agg(
