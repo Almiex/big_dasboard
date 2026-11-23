@@ -530,7 +530,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.8.2 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.8.4 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -889,7 +889,7 @@ def _render_tab2():
 def _render_tab3():
         top_specs = spec.groupby("spec_group")["revenue"].sum().sort_values(ascending=False).index.tolist()
         sel_top = st.multiselect("Специализации на графике", top_specs, default=top_specs[:8],
-                                 key=f"tab3_specs_{sel_clinic}")
+                                 key=f"tab3_specs_{sel_clinic}", placeholder="Выбор специализации")
         sel_top = [s for s in sel_top if s in top_specs] or top_specs[:8]
         d2 = spec[spec["spec_group"].isin(sel_top)]
         if d2.empty:
@@ -911,9 +911,11 @@ def _render_tab3():
                       color_discrete_map=SPEC_COLORS,
                       title="Загрузка по специализациям",
                       labels={"load": "загрузка", "month_label": "месяц", "spec_group": "специализация"})
-        fig.update_traces(hovertemplate="специализация: %{fullData.name}<br>месяц: %{x}<br>загрузка: %{y:.1%}<extra></extra>")
+        fig.update_traces(hovertemplate="специализация: %{fullData.name}<br>месяц: %{x}<br>загрузка: %{y:.1%}<extra></extra>",
+                          marker=dict(size=8))
         fig.update_yaxes(tickformat=".0%")
-        fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months}, **PLOTLY)
+        fig.update_layout(xaxis={"categoryorder": "array", "categoryarray": months},
+                          template="plotly_white", height=700)
         with st.container(border=True):
             st.plotly_chart(fig, use_container_width=True)
         st.caption("Загрузка — занятость часов (время с пациентом ÷ часы по графику), деньги не учитываются. Лидер по загрузке ≠ лидер по выручке: сравнивайте с графиком «Достижение потенциала» — он про деньги к плану-вместимости.")
@@ -1030,6 +1032,26 @@ def _render_tab4():
                     fig.update_layout(height=400, template="plotly_white")
                     with st.container(border=True):
                         st.plotly_chart(fig, use_container_width=True)
+
+        st.subheader("Итого по выбранным врачам")
+        tot = d4.groupby(["period", "month_label"], as_index=False).agg(
+            hours_plan=("hours_plan", "sum"), hours_patient=("hours_patient", "sum"))
+        tot = tot.sort_values("period")
+        tot["load"] = np.where(tot["hours_plan"] > 0, tot["hours_patient"] / tot["hours_plan"], np.nan)
+        fig = go.Figure()
+        fig.add_bar(x=tot["month_label"], y=tot["hours_plan"], name="Часы по графику (сумма)", marker_color="#9ECAE1")
+        fig.add_bar(x=tot["month_label"], y=tot["hours_patient"], name="Время с пациентом (сумма)", marker_color="#08519C", text=tot["hours_patient"].map("{:,.0f}".format), textposition="outside")
+        fig.add_scatter(x=tot["month_label"], y=tot["load"], name="Суммарная загрузка", yaxis="y2",
+                        mode="lines+markers", line=dict(color="#F58518", width=3),
+                        text=tot["load"].map("{:.1%}".format), textposition="top center")
+        fig.update_layout(title="Сумма часов по выбранным врачам", barmode="group",
+                          yaxis=dict(title="часы"),
+                          yaxis2=dict(title="загрузка", overlaying="y", side="right", tickformat=".0%", range=[0, 1.1]),
+                          xaxis={"categoryorder": "array", "categoryarray": months},
+                          template="plotly_white", height=400)
+        with st.container(border=True):
+            st.plotly_chart(fig, use_container_width=True)
+        st.caption("Складываются часы всех врачей, отмеченных в фильтре выше: суммарный фонд времени и его занятость приёмами.")
 
         st.subheader("Таблица по выбранным врачам")
         show_cols = ["month_full", "doctor", "spec_raw", "hours_plan", "hours_patient",
