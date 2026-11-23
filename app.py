@@ -530,7 +530,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.8.4 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.8.5 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -1040,18 +1040,16 @@ def _render_tab4():
         tot["load"] = np.where(tot["hours_plan"] > 0, tot["hours_patient"] / tot["hours_plan"], np.nan)
         fig = go.Figure()
         fig.add_bar(x=tot["month_label"], y=tot["hours_plan"], name="Часы по графику (сумма)", marker_color="#9ECAE1")
-        fig.add_bar(x=tot["month_label"], y=tot["hours_patient"], name="Время с пациентом (сумма)", marker_color="#08519C", text=tot["hours_patient"].map("{:,.0f}".format), textposition="outside")
-        fig.add_scatter(x=tot["month_label"], y=tot["load"], name="Суммарная загрузка", yaxis="y2",
-                        mode="lines+markers", line=dict(color="#F58518", width=3),
-                        text=tot["load"].map("{:.1%}".format), textposition="top center")
+        fig.add_bar(x=tot["month_label"], y=tot["hours_patient"], name="Время с пациентом (сумма)", marker_color="#08519C",
+                    text=[f"{v:,.0f} ч ({l:.0%})" for v, l in zip(tot["hours_patient"], tot["load"])],
+                    textposition="outside")
         fig.update_layout(title="Сумма часов по выбранным врачам", barmode="group",
                           yaxis=dict(title="часы"),
-                          yaxis2=dict(title="загрузка", overlaying="y", side="right", tickformat=".0%", range=[0, 1.1]),
                           xaxis={"categoryorder": "array", "categoryarray": months},
                           template="plotly_white", height=400)
         with st.container(border=True):
             st.plotly_chart(fig, use_container_width=True)
-        st.caption("Складываются часы всех врачей, отмеченных в фильтре выше: суммарный фонд времени и его занятость приёмами.")
+        st.caption("Складываются часы всех врачей, отмеченных в фильтре выше. На тёмно-синем столбце подпись вида «113 ч (44%)» — суммарное время с пациентами и доля занятого фонда (суммарная загрузка).")
 
         st.subheader("Таблица по выбранным врачам")
         show_cols = ["month_full", "doctor", "spec_raw", "hours_plan", "hours_patient",
