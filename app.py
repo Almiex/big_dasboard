@@ -530,7 +530,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.8.7 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.8.8 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -1039,7 +1039,7 @@ def _render_tab4():
         tot["load"] = np.where(tot["hours_plan"] > 0, tot["hours_patient"] / tot["hours_plan"], np.nan)
         fig = go.Figure()
         fig.add_bar(x=tot["month_label"], y=tot["hours_plan"], name="Часы по графику (сумма)", marker_color="#9ECAE1",
-                    text=tot["hours_plan"].map("{:,.0f}".format), textposition="outside")
+                    text=tot["hours_plan"].map("{:,.0f} ч (100%)".format), textposition="outside")
         fig.add_bar(x=tot["month_label"], y=tot["hours_patient"], name="Время с пациентом (сумма)", marker_color="#08519C",
                     text=[f"{v:,.0f} ч ({l:.0%})" for v, l in zip(tot["hours_patient"], tot["load"])],
                     textposition="outside")
