@@ -530,7 +530,7 @@ def month_order(df: pd.DataFrame) -> list:
 # --------------------------------------------------------------------------- #
 # UI
 # --------------------------------------------------------------------------- #
-APP_VERSION = "2.7.6 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
+APP_VERSION = "2.7.7 (2026-11-23)"  # смотрите в подписи под заголовком — сверка версии деплоя
 
 st.set_page_config(page_title="Аналитика врачей клиники", page_icon="🏥", layout="wide")
 
@@ -874,8 +874,11 @@ def _render_tab2():
             pot_pivot = pot_pivot.reindex(pot_spec.groupby("spec_group")["potential"]
                                           .sum().sort_values(ascending=False).index)
             fig = px.imshow(pot_pivot, text_auto=".0%", aspect="auto", color_continuous_scale="RdYlGn",
-                            title="Достижение потенциала по специализациям и месяцам")
-            fig.update_layout(height=max(400, 20 * len(pot_pivot)))
+                            title="Достижение потенциала по специализациям и месяцам",
+                            labels=dict(x="месяц", y="специализация", color="достижение"))
+            fig.update_xaxes(categoryorder="array", categoryarray=months)
+            fig.update_yaxes(categoryorder="array", categoryarray=list(pot_pivot.index))
+            fig.update_layout(height=max(550, 46 * len(pot_pivot)))
             with st.container(border=True):
                 st.plotly_chart(fig, use_container_width=True)
 
@@ -1067,8 +1070,10 @@ def _render_tab5():
         rev_by_doc = df.groupby("doctor")["revenue"].sum().sort_values(ascending=False)
         pivot_load = pivot_load.reindex(rev_by_doc.index)
         fig = px.imshow(pivot_load, text_auto=".0%", aspect="auto", color_continuous_scale="Blues",
-                        title="Загрузка врачей по месяцам")
-        fig.update_layout(height=max(400, 18 * len(pivot_load)))
+                        title="Загрузка врачей по месяцам",
+                        labels=dict(x="месяц", y="врач", color="загрузка"))
+        fig.update_xaxes(categoryorder="array", categoryarray=months)
+        fig.update_layout(height=max(550, 24 * len(pivot_load)))
         with st.container(border=True):
             st.plotly_chart(fig, use_container_width=True)
 
